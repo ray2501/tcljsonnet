@@ -1,0 +1,43 @@
+
+Jsonnet is a domain specific configuration language that helps you 
+define JSON data. Jsonnet lets you compute fragments of JSON within 
+the structure, bringing the same benefit to structured data that 
+templating languages bring to plain text.
+
+For additional information on Jsonnet see
+
+        http://google.github.io/jsonnet/doc/
+
+
+UNIX BUILD
+==========
+
+Building under most UNIX systems is easy, just run the configure script
+and then run make. For more information about the build process, see
+the tcl/unix/README file in the Tcl src dist. The following minimal
+example will install the extension in the /opt/tcl directory.
+
+	$ cd tcljsonnet
+	$ export CC=g++
+	$ ./configure --prefix=/opt/tcl
+	$ make
+	$ make install
+	
+If you need setup directory containing tcl configuration (tclConfig.sh),
+below is an example:
+
+	$ cd tcljsonnet
+	$ export CC=g++
+	$ ./configure --with-tcl=/opt/activetcl/lib
+	$ make
+	$ make install
+
+WINDOWS BUILD
+=============
+
+The recommended method to build extensions under windows is to use the
+Msys + Mingw build process. This provides a Unix-style build while
+generating native Windows binaries. Using the Msys + Mingw build tools
+means that you can use the same configure script as per the Unix build
+to create a Makefile.
+

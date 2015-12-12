@@ -1,0 +1,8 @@
+2015-12-12  Danilo Chang  <ray2501@gmail.com>
+
+	* Setup version to v0.1
+	* Implement jsonnet::evaluateFile command
+	* Implement jsonnet::evaluateSnippet command
+	* Add Jsonnet files
+	* Dump sample extension
+
