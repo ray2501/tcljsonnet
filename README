@@ -8,6 +8,11 @@ For additional information on Jsonnet see
 
         http://jsonnet.org
 
+License
+==========
+
+Apache License, Version 2.0
+
 
 UNIX BUILD
 ==========
@@ -32,6 +37,7 @@ below is an example:
 	$ make
 	$ make install
 
+
 WINDOWS BUILD
 =============
 
@@ -41,3 +47,25 @@ generating native Windows binaries. Using the Msys + Mingw build tools
 means that you can use the same configure script as per the Unix build
 to create a Makefile.
 
+
+Implement commands
+=============
+
+jsonnet::evaluateFile - accepts a file name string.
+jsonnet::evaluateSnippet - accepts a string to evaluate. 
+
+
+Example
+=============
+
+package require jsonnet
+
+set snippet {// example_operators.jsonnet
+{
+    foo: [1, 2, 3],
+    bar: [x * x for x in self.foo if x >= 2],
+    baz: { ["field" + x]: x for x in self.foo },
+    obj: { ["foo" + "bar"]: 3 },
+}}
+
+jsonnet::evaluateSnippet $snippet
