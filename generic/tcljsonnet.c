@@ -15,12 +15,16 @@
  *
  */
 
+#ifdef __cplusplus
 extern "C" {
+#endif
 #include <tcl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include "tcljsonnet.h"
+#ifdef __cplusplus
 }
+#endif
 
 
 int evaluateFile (ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *CONST obj[])
