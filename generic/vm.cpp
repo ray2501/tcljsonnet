@@ -19,10 +19,11 @@ limitations under the License.
 #include <set>
 #include <string>
 
-#include "desugaring.h"
+#include "desugarer.h"
 #include "parser.h"
 #include "state.h"
 #include "static_analysis.h"
+#include "string_utils.h"
 #include "vm.h"
 
 namespace {
@@ -659,7 +660,7 @@ namespace {
          * \param loc Location of the import statement.
          * \param file Path to the filename.
          */
-        AST *import(const LocationRange &loc, const String &file)
+        AST *import(const LocationRange &loc, const LiteralString *file)
         {
             const ImportCacheValue *input = importString(loc, file);
             Tokens tokens = jsonnet_lex(input->foundHere, input->content.c_str());
@@ -678,11 +679,13 @@ namespace {
          * \param file Path to the filename.
          * \param found_here If non-null, used to store the actual path of the file
          */
-        const ImportCacheValue *importString(const LocationRange &loc, const String &file)
+        const ImportCacheValue *importString(const LocationRange &loc, const LiteralString *file)
         {
             std::string dir = dir_name(loc.file);
 
-            std::pair<std::string, String> key(dir, file);
+            const String &path = file->value;
+
+            std::pair<std::string, String> key(dir, path);
             const ImportCacheValue *cached_value = cachedImports[key];
             if (cached_value != nullptr)
                 return cached_value;
@@ -691,14 +694,14 @@ namespace {
             int success = 0;
             char *found_here_cptr;
             char *content =
-                importCallback(importCallbackContext, dir.c_str(), encode_utf8(file).c_str(),
+                importCallback(importCallbackContext, dir.c_str(), encode_utf8(path).c_str(),
                                &found_here_cptr, &success);
 
             std::string input(content);
             ::free(content);
 
             if (!success) {
-                    std::string msg = "Couldn't open import \"" + encode_utf8(file) + "\": ";
+                    std::string msg = "Couldn't open import \"" + encode_utf8(path) + "\": ";
                     msg += input;
                     throw makeError(loc, msg);
             }
@@ -924,9 +927,9 @@ namespace {
                     stack.getSelfBinding(self, offset);
                     scratch = makeArray({});
                     auto &elements = static_cast<HeapArray*>(scratch.v.h)->elements;
-                    for (const AST *el : ast.elements) {
-                        auto *el_th = makeHeap<HeapThunk>(idArrayElement, self, offset, el);
-                        el_th->upValues =  capture(el->freeVariables);
+                    for (const auto &el : ast.elements) {
+                        auto *el_th = makeHeap<HeapThunk>(idArrayElement, self, offset, el.expr);
+                        el_th->upValues =  capture(el.expr->freeVariables);
                         elements.push_back(el_th);
                     }
                 } break;
@@ -963,7 +966,11 @@ namespace {
                     HeapObject *self;
                     unsigned offset;
                     stack.getSelfBinding(self, offset);
-                    scratch = makeClosure(env, self, offset, ast.parameters, ast.body);
+                    Identifiers ids;
+                    ids.reserve(ast.params.size());
+                    for (const auto &p : ast.params)
+                        ids.push_back(p.id);
+                    scratch = makeClosure(env, self, offset, ids, ast.body);
                 } break;
 
                 case AST_IMPORT: {
@@ -1111,21 +1118,22 @@ namespace {
                                             + type_str(scratch));
                         }
                         auto *func = static_cast<HeapClosure*>(scratch.v.h);
-                        if (ast.arguments.size() != func->params.size()) {
+                        if (ast.args.size() != func->params.size()) {
                             std::stringstream ss;
                             ss << "Expected " << func->params.size() <<
-                                  " arguments, got " << ast.arguments.size() << ".";
+                                  " arguments, got " << ast.args.size() << ".";
                             throw makeError(ast.location, ss.str());
                         }
 
                         // Create thunks for arguments.
-                        for (unsigned i=0 ; i<ast.arguments.size() ; ++i) {
-                            const auto *arg = ast.arguments[i];
+                        for (unsigned i=0 ; i<ast.args.size() ; ++i) {
+                            const auto &arg = ast.args[i];
                             HeapObject *self;
                             unsigned offset;
                             stack.getSelfBinding(self, offset);
-                            auto *thunk = makeHeap<HeapThunk>(func->params[i], self, offset, arg);
-                            thunk->upValues = capture(arg->freeVariables);
+                            auto *thunk =
+                                makeHeap<HeapThunk>(func->params[i], self, offset, arg.expr);
+                            thunk->upValues = capture(arg.expr->freeVariables);
                             f.thunks.push_back(thunk);
                         }
                         // Popping stack frame invalidates the f reference.
@@ -1763,10 +1771,14 @@ namespace {
                                         r = true;
                                         break;
 
+                                        case Value::FUNCTION:
+                                        throw makeError(loc, "Cannot test equality of functions");
+                                        break;
+
                                         default:
                                         throw makeError(loc,
-                                                        "length operates on strings, objects, "
-                                                        "and arrays, got " + type_str(args[0]));
+                                                        "primitiveEquals operates on primitive "
+                                                        "types, got " + type_str(args[0]));
                                     }
                                     scratch = makeBoolean(r);
                                 } break;
@@ -2230,7 +2242,7 @@ namespace {
 
                 case Value::STRING: {
                     const String &str = static_cast<HeapString*>(scratch.v.h)->value;
-                    ss << jsonnet_unparse_escape(str);
+                    ss << jsonnet_string_unparse(str, false);
                 }
                 break;
             }
@@ -2280,6 +2292,42 @@ namespace {
             return r;
         }
 
+        std::vector<std::string> manifestStream(void)
+        {
+            std::vector<std::string> r;
+            LocationRange loc("During manifestation");
+            if (scratch.t != Value::ARRAY) {
+                std::stringstream ss;
+                ss << "Stream mode: Top-level object was a " << type_str(scratch.t) << ", "
+                   << "should be an array whose elements hold "
+                   << "the JSON for each document in the stream.";
+                throw makeError(loc, ss.str());
+            }
+            auto *arr = static_cast<HeapArray*>(scratch.v.h);
+            for (auto *thunk : arr->elements) {
+                LocationRange tloc = thunk->body == nullptr
+                                   ? loc
+                                   : thunk->body->location;
+                if (thunk->filled) {
+                    stack.newCall(loc, thunk, nullptr, 0, BindingFrame{});
+                    // Keep arr alive when scratch is overwritten
+                    stack.top().val = scratch;
+                    scratch = thunk->content;
+                } else {
+                    stack.newCall(loc, thunk,
+                                  thunk->self, thunk->offset, thunk->upValues);
+                    // Keep arr alive when scratch is overwritten
+                    stack.top().val = scratch;
+                    evaluate(thunk->body, stack.size());
+                }
+                String element = manifestJson(tloc, true, U"");
+                scratch = stack.top().val;
+                stack.pop();
+                r.push_back(encode_utf8(element));
+            }
+            return r;
+        }
+
     };
 
 }
@@ -2310,5 +2358,16 @@ StrMap jsonnet_vm_execute_multi(Allocator *alloc, const AST *ast, const ExtMap &
                    import_callback, ctx);
     vm.evaluate(ast, 0);
     return vm.manifestMulti(string_output);
+}
+
+std::vector<std::string> jsonnet_vm_execute_stream(
+  Allocator *alloc, const AST *ast, const ExtMap &ext_vars, unsigned max_stack,
+  double gc_min_objects, double gc_growth_trigger, JsonnetImportCallback *import_callback,
+  void *ctx)
+{
+    Interpreter vm(alloc, ext_vars, max_stack, gc_min_objects, gc_growth_trigger,
+                   import_callback, ctx);
+    vm.evaluate(ast, 0);
+    return vm.manifestStream();
 }
 

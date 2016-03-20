@@ -16,6 +16,7 @@ limitations under the License.
 
 #include <cstdlib>
 #include <cstring>
+#include <cerrno>
 
 #include <exception>
 #include <fstream>
@@ -27,7 +28,8 @@ extern "C" {
 #include "libjsonnet.h"
 }
 
-#include "desugaring.h"
+#include "desugarer.h"
+#include "formatter.h"
 #include "parser.h"
 #include "static_analysis.h"
 #include "vm.h"
@@ -52,20 +54,20 @@ struct JsonnetVm {
     double gcGrowthTrigger;
     unsigned maxStack;
     unsigned gcMinObjects;
-    bool debugLexer;
-    bool debugAst;
-    bool debugDesugaring;
     unsigned maxTrace;
     std::map<std::string, VmExt> ext;
     JsonnetImportCallback *importCallback;
     void *importCallbackContext;
     bool stringOutput;
     std::vector<std::string> jpaths;
+
+    FmtOpts fmtOpts;
+    bool fmtDebugDesugaring;
     
     JsonnetVm(void)
-      : gcGrowthTrigger(2.0), maxStack(500), gcMinObjects(1000), debugLexer(false), debugAst(false),
-        debugDesugaring(false), maxTrace(20), importCallback(default_import_callback),
-        importCallbackContext(this), stringOutput(false)
+      : gcGrowthTrigger(2.0), maxStack(500), gcMinObjects(1000), maxTrace(20),
+        importCallback(default_import_callback), importCallbackContext(this), stringOutput(false),
+        fmtDebugDesugaring(false)
     {
         jpaths.emplace_back("/usr/share/" + std::string(jsonnet_version()) + "/");
         jpaths.emplace_back("/usr/local/share/" + std::string(jsonnet_version()) + "/");
@@ -219,19 +221,48 @@ void jsonnet_ext_code(JsonnetVm *vm, const char *key, const char *val)
     vm->ext[key] = VmExt(val, true);
 }
 
-void jsonnet_debug_ast(JsonnetVm *vm, int v)
+void jsonnet_fmt_debug_desugaring(JsonnetVm *vm, int v)
 {
-    vm->debugAst = v;
+    vm->fmtDebugDesugaring = v;
 }
 
-void jsonnet_debug_lexer(JsonnetVm *vm, int v)
+void jsonnet_fmt_indent(JsonnetVm *vm, int v)
 {
-    vm->debugLexer = v;
+    vm->fmtOpts.indent = v;
 }
 
-void jsonnet_debug_desugaring(JsonnetVm *vm, int v)
+void jsonnet_fmt_max_blank_lines(JsonnetVm *vm, int v)
 {
-    vm->debugDesugaring = v;
+    vm->fmtOpts.maxBlankLines = v;
+}
+
+void jsonnet_fmt_string(JsonnetVm *vm, int v)
+{
+    if (v != 'd' && v != 's' && v != 'l')
+        v = 'l';
+    vm->fmtOpts.stringStyle = v;
+}
+
+void jsonnet_fmt_comment(JsonnetVm *vm, int v)
+{
+    if (v != 'h' && v != 's' && v != 'l')
+        v = 'l';
+    vm->fmtOpts.commentStyle = v;
+}
+
+void jsonnet_fmt_pad_arrays(JsonnetVm *vm, int v)
+{
+    vm->fmtOpts.padArrays = v;
+}
+
+void jsonnet_fmt_pad_objects(JsonnetVm *vm, int v)
+{
+    vm->fmtOpts.padObjects = v;
+}
+
+void jsonnet_fmt_pretty_field_names(JsonnetVm *vm, int v)
+{
+    vm->fmtOpts.prettyFieldNames = v;
 }
 
 void jsonnet_max_trace(JsonnetVm *vm, unsigned v)
@@ -247,8 +278,8 @@ void jsonnet_jpath_add(JsonnetVm *vm, const char *path_)
     vm->jpaths.emplace_back(path);
 }
 
-static char *jsonnet_evaluate_snippet_aux(JsonnetVm *vm, const char *filename,
-                                          const char *snippet, int *error, bool multi)
+static char *jsonnet_fmt_snippet_aux(JsonnetVm *vm, const char *filename, const char *snippet,
+                                     int *error)
 {
     try {
         Allocator alloc;
@@ -256,64 +287,144 @@ static char *jsonnet_evaluate_snippet_aux(JsonnetVm *vm, const char *filename,
         AST *expr;
         std::map<std::string, std::string> files;
         Tokens tokens = jsonnet_lex(filename, snippet);
-        if (vm->debugLexer) {
-            json_str = jsonnet_unlex(tokens);
-            goto done;
-        }
+
+        // std::cout << jsonnet_unlex(tokens);
 
         expr = jsonnet_parse(&alloc, tokens);
-        if (vm->debugAst) {
-            json_str = jsonnet_unparse_jsonnet(expr);
-            json_str += "\n";
-            goto done;
+        Fodder final_fodder = tokens.front().fodder;
+
+        if (vm->fmtDebugDesugaring)
+            jsonnet_desugar(&alloc, expr);
+
+        json_str = jsonnet_fmt(expr, final_fodder, vm->fmtOpts);
+
+        json_str += "\n";
+
+        *error = false;
+        return from_string(vm, json_str);
+
+    } catch (StaticError &e) {
+        std::stringstream ss;
+        ss << "STATIC ERROR: " << e << std::endl;
+        *error = true;
+        return from_string(vm, ss.str());
+    }
+
+}
+
+char *jsonnet_fmt_file(JsonnetVm *vm, const char *filename, int *error)
+{
+    TRY
+        std::ifstream f;
+        f.open(filename);
+        if (!f.good()) {
+            std::stringstream ss;
+            ss << "Opening input file: " << filename << ": " << strerror(errno);
+            *error = true;
+            return from_string(vm, ss.str());
         }
+        std::string input;
+        input.assign(std::istreambuf_iterator<char>(f),
+                     std::istreambuf_iterator<char>());
+
+        return jsonnet_fmt_snippet_aux(vm, filename, input.c_str(), error);
+    CATCH("jsonnet_fmt_file")
+    return nullptr;  // Never happens.
+}
+
+char *jsonnet_fmt_snippet(JsonnetVm *vm, const char *filename, const char *snippet, int *error)
+{
+    TRY
+        return jsonnet_fmt_snippet_aux(vm, filename, snippet, error);
+    CATCH("jsonnet_fmt_snippet")
+    return nullptr;  // Never happens.
+}
+
+
+namespace {
+  enum EvalKind { REGULAR, MULTI, STREAM };
+}
+
+static char *jsonnet_evaluate_snippet_aux(JsonnetVm *vm, const char *filename,
+                                          const char *snippet, int *error, EvalKind kind)
+{
+    try {
+        Allocator alloc;
+        AST *expr;
+        Tokens tokens = jsonnet_lex(filename, snippet);
+
+        expr = jsonnet_parse(&alloc, tokens);
 
         jsonnet_desugar(&alloc, expr);
-        if (vm->debugDesugaring) {
-            json_str = jsonnet_unparse_jsonnet(expr);
-            json_str += "\n";
-            goto done;
-        }
 
         jsonnet_static_analysis(expr);
-        if (multi) {
-            files = jsonnet_vm_execute_multi(&alloc, expr, vm->ext, vm->maxStack,
-                                             vm->gcMinObjects, vm->gcGrowthTrigger,
-                                             vm->importCallback, vm->importCallbackContext,
-                                             vm->stringOutput);
-        } else {
-            json_str = jsonnet_vm_execute(&alloc, expr, vm->ext, vm->maxStack,
-                                          vm->gcMinObjects, vm->gcGrowthTrigger,
-                                          vm->importCallback, vm->importCallbackContext,
-                                          vm->stringOutput);
-            json_str += "\n";
-        }
+        switch (kind) {
+            case REGULAR: {
+                std::string json_str = jsonnet_vm_execute(
+                    &alloc, expr, vm->ext, vm->maxStack, vm->gcMinObjects, vm->gcGrowthTrigger,
+                    vm->importCallback, vm->importCallbackContext, vm->stringOutput);
+                json_str += "\n";
+                *error = false;
+                return from_string(vm, json_str);
+            }
+            break;
 
-        done: if (multi) {
-            size_t sz = 1; // final sentinel
-            for (const auto &pair : files) {
-                sz += pair.first.length() + 1; // include sentinel
-                sz += pair.second.length() + 2; // Add a '\n' as well as sentinel
+            case MULTI: {
+                std::map<std::string, std::string> files = jsonnet_vm_execute_multi(
+                    &alloc, expr, vm->ext, vm->maxStack, vm->gcMinObjects, vm->gcGrowthTrigger,
+                    vm->importCallback, vm->importCallbackContext, vm->stringOutput);
+                size_t sz = 1; // final sentinel
+                for (const auto &pair : files) {
+                    sz += pair.first.length() + 1; // include sentinel
+                    sz += pair.second.length() + 2; // Add a '\n' as well as sentinel
+                }
+                char *buf = (char*)::malloc(sz);
+                if (buf == nullptr) memory_panic();
+                std::ptrdiff_t i = 0;
+                for (const auto &pair : files) {
+                    memcpy(&buf[i], pair.first.c_str(), pair.first.length() + 1);
+                    i += pair.first.length() + 1;
+                    memcpy(&buf[i], pair.second.c_str(), pair.second.length());
+                    i += pair.second.length();
+                    buf[i] = '\n';
+                    i++;
+                    buf[i] = '\0';
+                    i++;
+                }
+                buf[i] = '\0'; // final sentinel
+                *error = false;
+                return buf;
             }
-            char *buf = (char*)::malloc(sz);
-            if (buf == nullptr) memory_panic();
-            std::ptrdiff_t i = 0;
-            for (const auto &pair : files) {
-                memcpy(&buf[i], pair.first.c_str(), pair.first.length() + 1);
-                i += pair.first.length() + 1;
-                memcpy(&buf[i], pair.second.c_str(), pair.second.length());
-                i += pair.second.length();
-                buf[i] = '\n';
-                i++;
-                buf[i] = '\0';
-                i++;
+            break;
+
+            case STREAM: {
+                std::vector<std::string> documents = jsonnet_vm_execute_stream(
+                    &alloc, expr, vm->ext, vm->maxStack, vm->gcMinObjects, vm->gcGrowthTrigger,
+                    vm->importCallback, vm->importCallbackContext);
+                size_t sz = 1; // final sentinel
+                for (const auto &doc : documents) {
+                    sz += doc.length() + 2; // Add a '\n' as well as sentinel
+                }
+                char *buf = (char*)::malloc(sz);
+                if (buf == nullptr) memory_panic();
+                std::ptrdiff_t i = 0;
+                for (const auto &doc : documents) {
+                    memcpy(&buf[i], doc.c_str(), doc.length());
+                    i += doc.length();
+                    buf[i] = '\n';
+                    i++;
+                    buf[i] = '\0';
+                    i++;
+                }
+                buf[i] = '\0'; // final sentinel
+                *error = false;
+                return buf;
             }
-            buf[i] = '\0'; // final sentinel
-            *error = false;
-            return buf;
-        } else {
-            *error = false;
-            return from_string(vm, json_str);
+            break;
+
+            default:
+            fputs("INTERNAL ERROR: bad value of 'kind', probably memory corruption.\n", stderr);
+            abort();
         }
 
     } catch (StaticError &e) {
@@ -343,7 +454,7 @@ static char *jsonnet_evaluate_snippet_aux(JsonnetVm *vm, const char *filename,
 
 }
 
-static char *jsonnet_evaluate_file_aux(JsonnetVm *vm, const char *filename, int *error, bool multi)
+static char *jsonnet_evaluate_file_aux(JsonnetVm *vm, const char *filename, int *error, EvalKind kind)
 {
     std::ifstream f;
     f.open(filename);
@@ -357,13 +468,13 @@ static char *jsonnet_evaluate_file_aux(JsonnetVm *vm, const char *filename, int 
     input.assign(std::istreambuf_iterator<char>(f),
                  std::istreambuf_iterator<char>());
 
-    return jsonnet_evaluate_snippet_aux(vm, filename, input.c_str(), error, multi);
+    return jsonnet_evaluate_snippet_aux(vm, filename, input.c_str(), error, kind);
 }
 
 char *jsonnet_evaluate_file(JsonnetVm *vm, const char *filename, int *error)
 {
     TRY
-    return jsonnet_evaluate_file_aux(vm, filename, error, false);
+    return jsonnet_evaluate_file_aux(vm, filename, error, REGULAR);
     CATCH("jsonnet_evaluate_file")
     return nullptr;  // Never happens.
 }
@@ -371,15 +482,23 @@ char *jsonnet_evaluate_file(JsonnetVm *vm, const char *filename, int *error)
 char *jsonnet_evaluate_file_multi(JsonnetVm *vm, const char *filename, int *error)
 {
     TRY
-    return jsonnet_evaluate_file_aux(vm, filename, error, true);
+    return jsonnet_evaluate_file_aux(vm, filename, error, MULTI);
     CATCH("jsonnet_evaluate_file_multi")
+    return nullptr;  // Never happens.
+}
+
+char *jsonnet_evaluate_file_stream(JsonnetVm *vm, const char *filename, int *error)
+{
+    TRY
+    return jsonnet_evaluate_file_aux(vm, filename, error, STREAM);
+    CATCH("jsonnet_evaluate_file_stream")
     return nullptr;  // Never happens.
 }
 
 char *jsonnet_evaluate_snippet(JsonnetVm *vm, const char *filename, const char *snippet, int *error)
 {
     TRY
-    return jsonnet_evaluate_snippet_aux(vm, filename, snippet, error, false);
+    return jsonnet_evaluate_snippet_aux(vm, filename, snippet, error, REGULAR);
     CATCH("jsonnet_evaluate_snippet")
     return nullptr;  // Never happens.
 }
@@ -388,8 +507,17 @@ char *jsonnet_evaluate_snippet_multi(JsonnetVm *vm, const char *filename,
                                      const char *snippet, int *error)
 {
     TRY
-    return jsonnet_evaluate_snippet_aux(vm, filename, snippet, error, true);
+    return jsonnet_evaluate_snippet_aux(vm, filename, snippet, error, MULTI);
     CATCH("jsonnet_evaluate_snippet_multi")
+    return nullptr;  // Never happens.
+}
+
+char *jsonnet_evaluate_snippet_stream(JsonnetVm *vm, const char *filename,
+                                     const char *snippet, int *error)
+{
+    TRY
+    return jsonnet_evaluate_snippet_aux(vm, filename, snippet, error, STREAM);
+    CATCH("jsonnet_evaluate_snippet_stream")
     return nullptr;  // Never happens.
 }
 
