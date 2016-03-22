@@ -1,3 +1,7 @@
+2016-03-26  Danilo Chang  <ray2501@gmail.com>
+
+	* Update jsonnet code base to v0.8.7
+
 2016-02-16  Danilo Chang  <ray2501@gmail.com>
 
 	* tcljsonnet.c: add #ifdef __cplusplus/#endif

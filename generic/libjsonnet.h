@@ -17,13 +17,15 @@ limitations under the License.
 #ifndef LIB_JSONNET_H
 #define LIB_JSONNET_H
 
+#include <stddef.h>
+
 /** \file This file is a library interface for evaluating Jsonnet.  It is written in C++ but exposes
  * a C interface for easier wrapping by other languages.  See \see jsonnet_lib_test.c for an example
  * of using the library.
  */
 
 
-#define LIB_JSONNET_VERSION "v0.8.6"
+#define LIB_JSONNET_VERSION "v0.8.7"
 
 
 /** Return the version string of the Jsonnet interpreter.  Conforms to semantic versioning
@@ -91,14 +93,70 @@ void jsonnet_ext_var(struct JsonnetVm *vm, const char *key, const char *val);
  */
 void jsonnet_ext_code(struct JsonnetVm *vm, const char *key, const char *val);
 
-/** If set to 1, will emit the Jsonnet input after lexing. */
-void jsonnet_debug_lexer(struct JsonnetVm *vm, int v);
+/** Indentation level when reformatting (number of spaeces).
+ *
+ * \param n Number of spaces, must be > 0.
+ */
+void jsonnet_fmt_indent(struct JsonnetVm *vm, int n);
 
-/** If set to 1, will emit the Jsonnet input after parsing. */
-void jsonnet_debug_ast(struct JsonnetVm *vm, int v);
+/** Indentation level when reformatting (number of spaeces).
+ *
+ * \param n Number of spaces, must be > 0.
+ */
+void jsonnet_fmt_max_blank_lines(struct JsonnetVm *vm, int n);
 
-/** If set to 1, will emit the Jsonnet input after desugaring. */
-void jsonnet_debug_desugaring(struct JsonnetVm *vm, int v);
+/** Preferred style for string literals ("" or '').
+ *
+ * \param c String style as a char ('d', 's', or 'l' (leave)).
+ */
+void jsonnet_fmt_string(struct JsonnetVm *vm, int c);
+
+/** Preferred style for line comments (# or //).
+ *
+ * \param c Comment style as a char ('h', 's', or 'l' (leave)).
+ */
+void jsonnet_fmt_comment(struct JsonnetVm *vm, int c);
+
+/** Whether to add an extra space on the inside of arrays.
+ */
+void jsonnet_fmt_pad_arrays(struct JsonnetVm *vm, int v);
+
+/** Whether to add an extra space on the inside of objects.
+ */
+void jsonnet_fmt_pad_objects(struct JsonnetVm *vm, int v);
+
+/** Use syntax sugar where possible with field names.
+ */
+void jsonnet_fmt_pretty_field_names(struct JsonnetVm *vm, int v);
+
+/** If set to 1, will reformat the Jsonnet input after desugaring. */
+void jsonnet_fmt_debug_desugaring(struct JsonnetVm *vm, int v);
+
+/** Reformat a file containing Jsonnet code, return a Jsonnet string.
+ *
+ * The returned string should be cleaned up with jsonnet_realloc.
+ *
+ * \param filename Path to a file containing Jsonnet code.
+ * \param error Return by reference whether or not there was an error.
+ * \returns Either Jsonnet code or the error message.
+ */
+char *jsonnet_fmt_file(struct JsonnetVm *vm,
+                       const char *filename,
+                       int *error);
+
+/** Evaluate a string containing Jsonnet code, return a Jsonnet string.
+ *
+ * The returned string should be cleaned up with jsonnet_realloc.
+ *
+ * \param filename Path to a file (used in error messages).
+ * \param snippet Jsonnet code to execute.
+ * \param error Return by reference whether or not there was an error.
+ * \returns Either JSON or the error message.
+ */
+char *jsonnet_fmt_snippet(struct JsonnetVm *vm,
+                          const char *filename,
+                          const char *snippet,
+                          int *error);
 
 /** Set the number of lines of stack trace to display (0 for all of them). */
 void jsonnet_max_trace(struct JsonnetVm *vm, unsigned v);
@@ -132,7 +190,7 @@ char *jsonnet_evaluate_snippet(struct JsonnetVm *vm,
                                const char *snippet,
                                int *error);
 
-/** Evaluate a file containing Jsonnet code, return a number of JSON files.
+/** Evaluate a file containing Jsonnet code, return a number of named JSON files.
  *
  * The returned character buffer contains an even number of strings, the filename and JSON for each
  * JSON file interleaved.  It should be cleaned up with jsonnet_realloc.
@@ -145,7 +203,7 @@ char *jsonnet_evaluate_file_multi(struct JsonnetVm *vm,
                                   const char *filename,
                                   int *error);
 
-/** Evaluate a string containing Jsonnet code, return a number of JSON files.
+/** Evaluate a string containing Jsonnet code, return a number of named JSON files.
  *
  * The returned character buffer contains an even number of strings, the filename and JSON for each
  * JSON file interleaved.  It should be cleaned up with jsonnet_realloc.
@@ -159,6 +217,34 @@ char *jsonnet_evaluate_snippet_multi(struct JsonnetVm *vm,
                                      const char *filename,
                                      const char *snippet,
                                      int *error);
+
+/** Evaluate a file containing Jsonnet code, return a number of JSON files.
+ *
+ * The returned character buffer contains several strings.  It should be cleaned up with
+ * jsonnet_realloc.
+ *
+ * \param filename Path to a file containing Jsonnet code.
+ * \param error Return by reference whether or not there was an error.
+ * \returns Either the error, or a sequence of strings separated by \0, terminated with \0\0.
+ */
+char *jsonnet_evaluate_file_stream(struct JsonnetVm *vm,
+                                   const char *filename,
+                                   int *error);
+
+/** Evaluate a string containing Jsonnet code, return a number of JSON files.
+ *
+ * The returned character buffer contains several strings.  It should be cleaned up with
+ * jsonnet_realloc.
+ *
+ * \param filename Path to a file containing Jsonnet code.
+ * \param snippet Jsonnet code to execute.
+ * \param error Return by reference whether or not there was an error.
+ * \returns Either the error, or a sequence of strings separated by \0, terminated with \0\0.
+ */
+char *jsonnet_evaluate_snippet_stream(struct JsonnetVm *vm,
+                                      const char *filename,
+                                      const char *snippet,
+                                      int *error);
 
 /** Complement of \see jsonnet_vm_make. */
 void jsonnet_destroy(struct JsonnetVm *vm);
