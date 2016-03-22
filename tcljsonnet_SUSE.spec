@@ -4,11 +4,11 @@
 
 Name:          tcljsonnet
 Summary:       Jsonnet wrapper for Tcl
-Version:       0.1
+Version:       0.2
 Release:       2
 License:       Apache License, Version 2.0
 Group:         Development/Libraries/Tcl
-Source:        https://sites.google.com/site/ray2501/tcljsonnet/tcljsonnet_0.1.zip
+Source:        https://sites.google.com/site/ray2501/tcljsonnet/tcljsonnet_0.2.zip
 URL:           https://sites.google.com/site/ray2501/tcljsonnet 
 Buildrequires: tcl >= 8.4
 BuildRoot:     %{buildroot}
