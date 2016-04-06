@@ -1,3 +1,8 @@
+2016-04-06  Danilo Chang  <ray2501@gmail.com>
+
+	* Setup version to v0.3
+	* Update jsonnet code base to v0.8.8
+
 2016-03-26  Danilo Chang  <ray2501@gmail.com>
 
 	* Update jsonnet code base to v0.8.7
