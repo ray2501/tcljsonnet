@@ -71,7 +71,7 @@ TEA_SETUP_COMPILER
 # and PKG_TCL_SOURCES.
 #-----------------------------------------------------------------------
 
-TEA_ADD_SOURCES([tcljsonnet.c generic/desugarer.cpp generic/lexer.cpp generic/formatter.cpp
+TEA_ADD_SOURCES([tcljsonnet.cpp generic/desugarer.cpp generic/lexer.cpp generic/formatter.cpp
                   generic/libjsonnet.cpp generic/parser.cpp generic/static_analysis.cpp
                   generic/string_utils.cpp generic/vm.cpp])
 TEA_ADD_HEADERS([])

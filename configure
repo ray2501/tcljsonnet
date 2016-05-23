@@ -5328,7 +5328,7 @@ done
 #-----------------------------------------------------------------------
 
 
-    vars="tcljsonnet.c generic/desugarer.cpp generic/lexer.cpp generic/formatter.cpp
+    vars="tcljsonnet.cpp generic/desugarer.cpp generic/lexer.cpp generic/formatter.cpp
                   generic/libjsonnet.cpp generic/parser.cpp generic/static_analysis.cpp
                   generic/string_utils.cpp generic/vm.cpp"
     for i in $vars; do

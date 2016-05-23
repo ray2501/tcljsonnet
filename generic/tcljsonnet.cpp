@@ -26,6 +26,8 @@ extern "C" {
 }
 #endif
 
+#include <new>
+#include <exception>
 
 int evaluateFile (ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *CONST obj[])
 {
@@ -48,26 +50,36 @@ int evaluateFile (ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *
        return TCL_ERROR;
     }
 
-    file_path = Tcl_TranslateFileName(interp, file_path, &translatedFilename);
+    try {
+        file_path = Tcl_TranslateFileName(interp, file_path, &translatedFilename);
 
-    vm = jsonnet_make();
-    output = jsonnet_evaluate_file(vm, file_path, &error);
-    Tcl_DStringFree(&translatedFilename);
+        vm = jsonnet_make();
+        output = jsonnet_evaluate_file(vm, file_path, &error);
+        Tcl_DStringFree(&translatedFilename);
 
-    if (error) {
-          jsonnet_realloc(vm, output, 0);
-          jsonnet_destroy(vm);
+        if (error) {
+            jsonnet_realloc(vm, output, 0);
+            jsonnet_destroy(vm);
 
-          Tcl_AppendResult(interp, "jsonnet_evaluate_file fail", (char*)0);
-          return TCL_ERROR;
+            Tcl_AppendResult(interp, "jsonnet_evaluate_file fail", (char*)0);
+            return TCL_ERROR;
+        }
+
+        pResultStr = Tcl_NewStringObj( output, -1 );
+        jsonnet_realloc(vm, output, 0);
+        jsonnet_destroy(vm);
+        Tcl_SetObjResult(interp, pResultStr);
+
+        return TCL_OK;
+    } catch (const std::bad_alloc&) {
+        Tcl_AppendResult(interp, "Internal out-of-memory error", (char*)0);
+    } catch (const std::exception& e) {
+        Tcl_AppendResult(interp, "Internal error", (char*)0);
+    } catch (...) {
+        Tcl_AppendResult(interp, "An unknown exception occurred", (char*)0);
     }
-
-    pResultStr = Tcl_NewStringObj( output, -1 );
-    jsonnet_realloc(vm, output, 0);
-    jsonnet_destroy(vm);
-    Tcl_SetObjResult(interp, pResultStr);
-
-    return TCL_OK;
+    
+    return TCL_ERROR;
 }
 
 
@@ -90,23 +102,32 @@ int evaluateSnippet (ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Ob
     if( !snippet_string || snippet_len < 1 ){
        return TCL_ERROR;
     }
+    try {
+        vm = jsonnet_make();
+        output = jsonnet_evaluate_snippet(vm, "snippet", snippet_string, &error);
+        if (error) {
+            jsonnet_realloc(vm, output, 0);
+            jsonnet_destroy(vm);
 
-    vm = jsonnet_make();
-    output = jsonnet_evaluate_snippet(vm, "snippet", snippet_string, &error);
-    if (error) {
-          jsonnet_realloc(vm, output, 0);
-          jsonnet_destroy(vm);
+            Tcl_AppendResult(interp, "jsonnet_evaluate_snippet fail", (char*)0);
+            return TCL_ERROR;
+        }
 
-          Tcl_AppendResult(interp, "jsonnet_evaluate_snippet fail", (char*)0);
-          return TCL_ERROR;
+        pResultStr = Tcl_NewStringObj( output, -1 );
+        jsonnet_realloc(vm, output, 0);
+        jsonnet_destroy(vm);
+        Tcl_SetObjResult(interp, pResultStr);
+
+        return TCL_OK;
+    } catch (const std::bad_alloc&) {
+        Tcl_AppendResult(interp, "Internal out-of-memory error", (char*)0);
+    } catch (const std::exception& e) {
+        Tcl_AppendResult(interp, "Internal error", (char*)0);
+    } catch (...) {
+        Tcl_AppendResult(interp, "An unknown exception occurred", (char*)0);
     }
-
-    pResultStr = Tcl_NewStringObj( output, -1 );
-    jsonnet_realloc(vm, output, 0);
-    jsonnet_destroy(vm);
-    Tcl_SetObjResult(interp, pResultStr);
-
-    return TCL_OK;
+    
+    return TCL_ERROR;        
 }
 
 
