@@ -209,8 +209,11 @@ struct HeapComprehensionObject : public HeapLeafObject {
      * For each field, holds the value that should be bound to id.  This is the corresponding
      * array element from the original array used to define this object.  This should not really
      * be a thunk, but it makes the implementation easier.
+     *
+     * It is convenient to make this non-const to allow building up the values one by one, so that
+     * the garbage collector can see them at each intermediate point.
      */
-    const std::map<const Identifier*, HeapThunk*> compValues;
+    std::map<const Identifier*, HeapThunk*> compValues;
 
     HeapComprehensionObject(const BindingFrame &up_values, const AST *value,
                             const Identifier *id,
@@ -221,7 +224,7 @@ struct HeapComprehensionObject : public HeapLeafObject {
 
 /** Stores the function itself and also the captured environment.
  *
- * Either body is non-null and builtin is 0, or body is null and builtin refers to a built-in
+ * Either body is non-null and builtinName is "", or body is null and builtin refers to a built-in
  * function.  In the former case, the closure represents a user function, otherwise calling it
  * will trigger the builtin function to execute.  Params is empty when the function is a
  * builtin.
@@ -233,16 +236,24 @@ struct HeapClosure : public HeapEntity {
     HeapObject *self;
     /** The offset from the captured self variable.  \see Frame.*/
     unsigned offset;
-    const std::vector<const Identifier*> params;
+    struct Param {
+        const Identifier *id;
+        const AST *def;
+        Param(const Identifier *id, const AST *def)
+          : id(id), def(def)
+        { }
+    };
+    typedef std::vector<Param> Params;
+    const Params params;
     const AST *body;
-    const unsigned long builtin;
+    std::string builtinName;
     HeapClosure(const BindingFrame &up_values,
-                 HeapObject *self,
-                 unsigned offset,
-                 const std::vector<const Identifier*> &params,
-                 const AST *body, unsigned long builtin)
+                HeapObject *self,
+                unsigned offset,
+                const Params &params,
+                const AST *body, const std::string &builtin_name)
       : upValues(up_values), self(self), offset(offset),
-        params(params), body(body), builtin(builtin)
+        params(params), body(body), builtinName(builtin_name)
     { }
 };
 

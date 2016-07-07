@@ -16,6 +16,7 @@ limitations under the License.
 
 #include <cassert>
 
+#include <map>
 #include <string>
 #include <sstream>
 
@@ -28,13 +29,15 @@ static const std::vector<std::string> EMPTY;
 /** Strip whitespace from both ends of a string, but only up to margin on the left hand side. */
 static std::string strip_ws(const std::string &s, unsigned margin)
 {
+    if (s.size() == 0) return s;  // Avoid underflow below.
     size_t i = 0;
     while (i < s.length() && (s[i] == ' ' || s[i] == '\t' || s[i] == '\r') && i < margin)
         i++;
-    size_t j = s.size() - 1;
-    while (j >= i && (s[j] == ' ' || s[j] == '\t' || s[j] == '\r'))
+    size_t j = s.size();
+    while (j > i && (s[j - 1] == ' ' || s[j - 1] == '\t' || s[j - 1] == '\r')) {
         j--;
-    return std::string(&s[i], &s[j+1]);
+    }
+    return std::string(&s[i], &s[j]);
 }
 
 /** Split a string by \n and also strip left (up to margin) & right whitespace from each line. */
@@ -149,6 +152,33 @@ static bool is_symbol(char c)
         return true;
     }
     return false;
+}
+
+static const std::map<std::string, Token::Kind> keywords = {
+    {"assert", Token::ASSERT},
+    {"else", Token::ELSE},
+    {"error", Token::ERROR},
+    {"false", Token::FALSE},
+    {"for", Token::FOR},
+    {"function", Token::FUNCTION},
+    {"if", Token::IF},
+    {"import", Token::IMPORT},
+    {"importstr", Token::IMPORTSTR},
+    {"in", Token::IN},
+    {"local", Token::LOCAL},
+    {"null", Token::NULL_LIT},
+    {"self", Token::SELF},
+    {"super", Token::SUPER},
+    {"tailstrict", Token::TAILSTRICT},
+    {"then", Token::THEN},
+    {"true", Token::TRUE},
+};
+
+Token::Kind lex_get_keyword_kind(const std::string &identifier)
+{
+    auto it = keywords.find(identifier);
+    if (it == keywords.end()) return Token::IDENTIFIER;
+    return it->second;
 }
 
 std::string lex_number(const char *&c, const std::string &filename, const Location &begin)
@@ -483,44 +513,7 @@ Tokens jsonnet_lex(const std::string &filename, const char *input)
                 std::string id;
                 for (; is_identifier(*c); ++c)
                     id += *c;
-                if (id == "assert") {
-                    kind = Token::ASSERT;
-                } else if (id == "else") {
-                    kind = Token::ELSE;
-                } else if (id == "error") {
-                    kind = Token::ERROR;
-                } else if (id == "false") {
-                    kind = Token::FALSE;
-                } else if (id == "for") {
-                    kind = Token::FOR;
-                } else if (id == "function") {
-                    kind = Token::FUNCTION;
-                } else if (id == "if") {
-                    kind = Token::IF;
-                } else if (id == "import") {
-                    kind = Token::IMPORT;
-                } else if (id == "importstr") {
-                    kind = Token::IMPORTSTR;
-                } else if (id == "in") {
-                    kind = Token::IN;
-                } else if (id == "local") {
-                    kind = Token::LOCAL;
-                } else if (id == "null") {
-                    kind = Token::NULL_LIT;
-                } else if (id == "self") {
-                    kind = Token::SELF;
-                } else if (id == "super") {
-                    kind = Token::SUPER;
-                } else if (id == "tailstrict") {
-                    kind = Token::TAILSTRICT;
-                } else if (id == "then") {
-                    kind = Token::THEN;
-                } else if (id == "true") {
-                    kind = Token::TRUE;
-                } else {
-                    // Not a keyword, must be an identifier.
-                    kind = Token::IDENTIFIER;
-                }
+                kind = lex_get_keyword_kind(id);
                 data = id;
 
             } else if (is_symbol(*c) || *c == '#') {

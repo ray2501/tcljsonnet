@@ -17,6 +17,7 @@ limitations under the License.
 #include <cassert>
 
 #include "ast.h"
+#include "desugarer.h"
 #include "lexer.h"
 #include "parser.h"
 #include "string_utils.h"
@@ -25,7 +26,12 @@ static const Fodder EF;  // Empty fodder.
 
 static const LocationRange E;  // Empty.
 
-static unsigned long max_builtin = 24;
+struct BuiltinDecl {
+    String name;
+    std::vector<String> params;
+};
+
+static unsigned long max_builtin = 25;
 BuiltinDecl jsonnet_builtin_decl(unsigned long builtin)
 {
     switch (builtin) {
@@ -54,6 +60,7 @@ BuiltinDecl jsonnet_builtin_decl(unsigned long builtin)
         case 22: return {U"modulo", {U"a", U"b"}};
         case 23: return {U"extVar", {U"x"}};
         case 24: return {U"primitiveEquals", {U"a", U"b"}};
+        case 25: return {U"native", {U"name"}};
         default:
         std::cerr << "INTERNAL ERROR: Unrecognized builtin function: " << builtin << std::endl;
         std::abort();
@@ -91,6 +98,9 @@ class Desugarer {
     LiteralString *str(const LocationRange &loc, const String &s)
     { return make<LiteralString>(loc, EF, s, LiteralString::DOUBLE, "", ""); }
 
+    LiteralNull *null(void)
+    { return make<LiteralNull>(E, EF); }
+
     Var *var(const Identifier *ident)
     { return make<Var>(E, EF, ident); }
 
@@ -100,7 +110,7 @@ class Desugarer {
 
     Local::Bind bind(const Identifier *id, AST *body)
     {
-        return Local::Bind(EF, id, EF, body, false, EF, Params{}, false, EF, EF);
+        return Local::Bind(EF, id, EF, body, false, EF, ArgParams{}, false, EF, EF);
     }
 
     Local::Binds singleBind(const Identifier *id, AST *body)
@@ -121,7 +131,7 @@ class Desugarer {
             EF,
             make<Index>(E, EF, std(), EF, false, str(name), EF, nullptr, EF, nullptr, EF),
             EF,
-            Apply::Args{{v, EF}},
+            ArgParams{{v, EF}},
             false,  // trailingComma
             EF,
             EF,
@@ -136,7 +146,7 @@ class Desugarer {
             EF,
             make<Index>(E, EF, std(), EF, false, str(name), EF, nullptr, EF, nullptr, EF),
             EF,
-            Apply::Args{{a, EF}, {b, EF}},
+            ArgParams{{a, EF}, {b, EF}},
             false,  // trailingComma
             EF,
             EF,
@@ -154,6 +164,11 @@ class Desugarer {
         return stdFunc(U"type", v);
     }
 
+    Apply *primitiveEquals(const LocationRange &loc, AST *a, AST *b)
+    {
+        return stdFunc(loc, U"primitiveEquals", a, b);
+    }
+
     Apply *equals(const LocationRange &loc, AST *a, AST *b)
     {
         return stdFunc(loc, U"equals", a, b);
@@ -161,7 +176,7 @@ class Desugarer {
 
     Error *error(AST *msg)
     {
-        return alloc->make<Error>(msg->location, EF, msg);
+        return make<Error>(msg->location, EF, msg);
     }
 
     Error *error(const LocationRange &loc, const String &msg)
@@ -174,6 +189,16 @@ class Desugarer {
       : alloc(alloc)
     { }
 
+    void desugarParams(ArgParams &params, unsigned obj_level)
+    {
+        for (auto &param : params) {
+            if (param.expr) {
+                // Default arg.
+                desugar(param.expr, obj_level);
+            }
+        }
+    }
+
     void desugarFields(AST *ast, ObjectFields &fields, unsigned obj_level)
     {
         // Desugar children
@@ -181,6 +206,7 @@ class Desugarer {
             if (field.expr1 != nullptr) desugar(field.expr1, obj_level);
             desugar(field.expr2, obj_level + 1);
             if (field.expr3 != nullptr) desugar(field.expr3, obj_level + 1);
+            desugarParams(field.params, obj_level + 1);
         }
 
         // Simplify asserts
@@ -189,18 +215,17 @@ class Desugarer {
             AST *msg = field.expr3;
             field.expr3 = nullptr;
             if (msg == nullptr) {
-                auto msg_str = U"Object assertion failed.";
-                msg = alloc->make<LiteralString>(field.expr2->location, EF, msg_str,
-                                                 LiteralString::DOUBLE, "", "");
+                // The location is what appears in the stacktrace.
+                msg = str(field.expr2->location, U"Object assertion failed.");
             }
 
             // if expr2 then true else error msg
-            field.expr2 = alloc->make<Conditional>(
-                ast->location,
+            field.expr2 = make<Conditional>(
+                field.expr2->location,
                 EF,
                 field.expr2,
                 EF,
-                alloc->make<LiteralBoolean>(E, EF, true),
+                make<LiteralBoolean>(E, EF, true),
                 EF,
                 error(msg));
         }
@@ -208,7 +233,7 @@ class Desugarer {
         // Remove methods
         for (auto &field : fields) {
             if (!field.methodSugar) continue;
-            field.expr2 = alloc->make<Function>(
+            field.expr2 = make<Function>(
                 field.expr2->location, EF, field.fodderL, field.params, field.trailingComma,
                 field.fodderR, field.expr2);
             field.methodSugar = false;
@@ -227,7 +252,7 @@ class Desugarer {
         for (auto &field : copy) {
             if (field.kind == ObjectField::LOCAL) continue;
             if (!binds.empty())
-                field.expr2 = alloc->make<Local>(field.expr2->location, EF, binds, field.expr2);
+                field.expr2 = make<Local>(field.expr2->location, EF, binds, field.expr2);
             fields.push_back(field);
         }
 
@@ -261,9 +286,9 @@ class Desugarer {
         // Remove +:
         for (auto &field : fields) {
             if (!field.superSugar) continue;
-            AST *super_f = alloc->make<SuperIndex>(field.expr1->location, EF, EF, field.expr1, EF,
+            AST *super_f = make<SuperIndex>(field.expr1->location, EF, EF, field.expr1, EF,
                                                    nullptr);
-            field.expr2 = alloc->make<Binary>(ast->location, EF, super_f, EF, BOP_PLUS,
+            field.expr2 = make<Binary>(ast->location, EF, super_f, EF, BOP_PLUS,
                                               field.expr2);
             field.superSugar = false;
         }
@@ -273,13 +298,13 @@ class Desugarer {
     {
         if (auto *ast = dynamic_cast<Apply*>(ast_)) {
             desugar(ast->target, obj_level);
-            for (Apply::Arg &arg : ast->args)
+            for (ArgParam &arg : ast->args)
                 desugar(arg.expr, obj_level);
 
         } else if (auto *ast = dynamic_cast<ApplyBrace*>(ast_)) {
             desugar(ast->left, obj_level);
             desugar(ast->right, obj_level);
-            ast_ = alloc->make<Binary>(ast->location, ast->openFodder,
+            ast_ = make<Binary>(ast->location, ast->openFodder,
                                        ast->left, EF, BOP_PLUS, ast->right);
 
         } else if (auto *ast = dynamic_cast<Array*>(ast_)) {
@@ -321,7 +346,7 @@ class Desugarer {
                 EF,
                 var(_aux[last_for]),
                 EF,
-                Apply::Args {
+                ArgParams {
                     { make<Binary>(E, EF, var(_i[last_for]), EF, BOP_PLUS, one), EF},
                     { make<Binary>(E, EF, var(_r), EF, BOP_PLUS, singleton(ast->body)), EF}
                 },
@@ -344,7 +369,7 @@ class Desugarer {
                         EF,
                         var(_aux[prev_for]),
                         EF,
-                        Apply::Args {
+                        ArgParams {
                             { make<Binary>(E, EF, var(_i[prev_for]), EF, BOP_PLUS, one), EF, },
                             { var(_r), EF, }
                         },
@@ -396,7 +421,7 @@ class Desugarer {
                                     ast->location,
                                     EF,
                                     EF,
-                                    std::vector<Param>{Param(EF, _i[i], EF), Param(EF, _r, EF)},
+                                    ArgParams{{EF, _i[i], EF}, {EF, _r, EF}},
                                     false,  // trailingComma
                                     EF,
                                     make<Conditional>(
@@ -428,7 +453,7 @@ class Desugarer {
                                     EF,
                                     var(_aux[i]),
                                     EF,
-                                    Apply::Args {
+                                    ArgParams {
                                         {zero, EF},
                                         {
                                             i == 0
@@ -459,8 +484,8 @@ class Desugarer {
             desugar(ast->rest, obj_level);
 
             // if cond then rest else error msg
-            AST *branch_false = alloc->make<Error>(ast->location, EF, ast->message);
-            ast_ = alloc->make<Conditional>(ast->location, ast->openFodder,
+            AST *branch_false = make<Error>(ast->location, EF, ast->message);
+            ast_ = make<Conditional>(ast->location, ast->openFodder,
                                             ast->cond, EF, ast->rest, EF, branch_false);
 
         } else if (auto *ast = dynamic_cast<Binary*>(ast_)) {
@@ -471,10 +496,10 @@ class Desugarer {
 
             switch (ast->op) {
                 case BOP_PERCENT: {
-                    AST *f_mod = alloc->make<Index>(E, EF, std(), EF, false, str(U"mod"), EF,
+                    AST *f_mod = make<Index>(E, EF, std(), EF, false, str(U"mod"), EF,
                                                     nullptr, EF, nullptr, EF);
-                    Apply::Args args = {{ast->left, EF}, {ast->right, EF}};
-                    ast_ = alloc->make<Apply>(ast->location, ast->openFodder, f_mod, EF, args,
+                    ArgParams args = {{ast->left, EF}, {ast->right, EF}};
+                    ast_ = make<Apply>(ast->location, ast->openFodder, f_mod, EF, args,
                                               false, EF, EF, false);
                 } break;
 
@@ -483,7 +508,7 @@ class Desugarer {
                 case BOP_MANIFEST_EQUAL: {
                     ast_ = equals(ast->location, ast->left, ast->right);
                     if (invert)
-                        ast_ = alloc->make<Unary>(ast->location, ast->openFodder, UOP_NOT, ast_);
+                        ast_ = make<Unary>(ast->location, ast->openFodder, UOP_NOT, ast_);
                 }
                 break;
 
@@ -498,20 +523,21 @@ class Desugarer {
             desugar(ast->cond, obj_level);
             desugar(ast->branchTrue, obj_level);
             if (ast->branchFalse == nullptr)
-                ast->branchFalse = alloc->make<LiteralNull>(LocationRange(), EF);
+                ast->branchFalse = null();
             desugar(ast->branchFalse, obj_level);
 
         } else if (auto *ast = dynamic_cast<Dollar*>(ast_)) {
             if (obj_level == 0) {
                 throw StaticError(ast->location, "No top-level object found.");
             }
-            ast_ = alloc->make<Var>(ast->location, EF, alloc->makeIdentifier(U"$"));
+            ast_ = var(id(U"$"));
 
         } else if (auto *ast = dynamic_cast<Error*>(ast_)) {
             desugar(ast->expr, obj_level);
 
         } else if (auto *ast = dynamic_cast<Function*>(ast_)) {
             desugar(ast->body, obj_level);
+            desugarParams(ast->params, obj_level);
 
         } else if (dynamic_cast<const Import*>(ast_)) {
             // Nothing to do.
@@ -523,15 +549,15 @@ class Desugarer {
             desugar(ast->target, obj_level);
             if (ast->isSlice) {
                 if (ast->index == nullptr)
-                    ast->index = make<LiteralNull>(ast->location, EF);
+                    ast->index = null();
                 desugar(ast->index, obj_level);
 
                 if (ast->end == nullptr)
-                    ast->end = make<LiteralNull>(ast->location, EF);
+                    ast->end = null();
                 desugar(ast->end, obj_level);
 
                 if (ast->step == nullptr)
-                    ast->step = make<LiteralNull>(ast->location, EF);
+                    ast->step = null();
                 desugar(ast->step, obj_level);
 
                 ast_ = make<Apply>(
@@ -540,7 +566,7 @@ class Desugarer {
                     make<Index>(
                         E, EF, std(), EF, false, str(U"slice"), EF, nullptr, EF, nullptr, EF),
                     EF,
-                    std::vector<Apply::Arg>{
+                    ArgParams{
                         {ast->target, EF},
                         {ast->index, EF},
                         {ast->end, EF},
@@ -567,7 +593,8 @@ class Desugarer {
 
             for (auto &bind: ast->binds) {
                 if (bind.functionSugar) {
-                    bind.body = alloc->make<Function>(
+                    desugarParams(bind.params, obj_level);
+                    bind.body = make<Function>(
                         ast->location, ast->openFodder, bind.parenLeftFodder, bind.params, false,
                         bind.parenRightFodder, bind.body);
                     bind.functionSugar = false;
@@ -582,7 +609,9 @@ class Desugarer {
             // Nothing to do.
 
         } else if (auto *ast = dynamic_cast<LiteralString*>(ast_)) {
-            ast->value = jsonnet_string_unescape(ast->location, ast->value);
+            if (ast->tokenKind != LiteralString::BLOCK) {
+                ast->value = jsonnet_string_unescape(ast->location, ast->value);
+            }
             ast->tokenKind = LiteralString::DOUBLE;
             ast->blockIndent.clear();
 
@@ -601,8 +630,8 @@ class Desugarer {
         } else if (auto *ast = dynamic_cast<Object*>(ast_)) {
             // Hidden variable to allow outer/top binding.
             if (obj_level == 0) {
-                const Identifier *hidden_var = alloc->makeIdentifier(U"$");
-                auto *body = alloc->make<Self>(E, EF);
+                const Identifier *hidden_var = id(U"$");
+                auto *body = make<Self>(E, EF);
                 ast->fields.push_back(ObjectField::Local(EF, EF, hidden_var, EF, body, EF));
             }
 
@@ -620,13 +649,13 @@ class Desugarer {
                               << field.kind << std::endl;
                 }
             }
-            ast_ = alloc->make<DesugaredObject>(ast->location, new_asserts, new_fields);
+            ast_ = make<DesugaredObject>(ast->location, new_asserts, new_fields);
 
         } else if (auto *ast = dynamic_cast<ObjectComprehension*>(ast_)) {
             // Hidden variable to allow outer/top binding.
             if (obj_level == 0) {
-                const Identifier *hidden_var = alloc->makeIdentifier(U"$");
-                auto *body = alloc->make<Self>(E, EF);
+                const Identifier *hidden_var = id(U"$");
+                auto *body = make<Self>(E, EF);
                 ast->fields.push_back(ObjectField::Local(EF, EF, hidden_var, EF, body, EF));
             }
 
@@ -714,7 +743,7 @@ class Desugarer {
         }
     }
 
-    void desugarFile(AST *&ast)
+    void desugarFile(AST *&ast, std::map<std::string, VmExt> *tlas)
     {
         desugar(ast, 0);
 
@@ -734,23 +763,79 @@ class Desugarer {
             const auto &decl = jsonnet_builtin_decl(c);
             Identifiers params;
             for (const auto &p : decl.params)
-                params.push_back(alloc->makeIdentifier(p));
+                params.push_back(id(p));
             fields.emplace_back(
                 ObjectField::HIDDEN,
                 str(decl.name),
-                alloc->make<BuiltinFunction>(E, c, params));
+                make<BuiltinFunction>(E, encode_utf8(decl.name), params));
         }
         fields.emplace_back(
             ObjectField::HIDDEN,
             str(U"thisFile"),
             str(decode_utf8(ast->location.file)));
 
-        ast = alloc->make<Local>(ast->location, EF, singleBind(id(U"std"), std_obj), ast);
+        std::vector<std::string> empty;
+        auto line_end_blank = Fodder{{FodderElement::LINE_END, 1, 0, empty}};
+        auto line_end = Fodder{{FodderElement::LINE_END, 0, 0, empty}};
+
+        // local body = ast;
+        // if std.type(body) == "function") then
+        //     body(tlas...)
+        // else
+        //     body
+        if (tlas != nullptr) {
+            LocationRange tla_loc("Top-level function");
+            ArgParams args;
+            for (const auto &pair : *tlas)
+            {
+                AST *expr;
+                if (pair.second.isCode) {
+                    // Now, implement the std library by wrapping in a local construct.
+                    Tokens tokens = jsonnet_lex("tla:" + pair.first, pair.second.data.c_str());
+                    expr = jsonnet_parse(alloc, tokens);
+                    desugar(expr, 0);
+                } else {
+                    expr = str(decode_utf8(pair.second.data));
+                }
+                // Add them as named arguments, so order does not matter.
+                args.emplace_back(EF, id(decode_utf8(pair.first)), EF, expr, EF);
+            }
+            const Identifier *body = id(U"top_level");
+            ast = make<Local>(
+                ast->location,
+                line_end_blank,
+                singleBind(body, ast),
+                make<Conditional>(
+                    E,
+                    line_end,
+                    primitiveEquals(E, type(var(body)), str(U"function")),
+                    EF,
+                    make<Apply>(
+                        tla_loc,
+                        EF,
+                        make<Var>(E, line_end, body),
+                        EF,
+                        args,
+                        false,  // trailing comma
+                        EF,
+                        EF,
+                        false  // tailstrict
+                    ),
+                    line_end,
+                    make<Var>(E, line_end, body)));
+        }
+
+        // local std = (std.jsonnet stuff); ast
+        ast = make<Local>(
+            ast->location,
+            EF,
+            singleBind(id(U"std"), std_obj),
+            ast);
     }
 };
 
-void jsonnet_desugar(Allocator *alloc, AST *&ast)
+void jsonnet_desugar(Allocator *alloc, AST *&ast, std::map<std::string, VmExt> *tlas)
 {
     Desugarer desugarer(alloc);
-    desugarer.desugarFile(ast);
+    desugarer.desugarFile(ast, tlas);
 }

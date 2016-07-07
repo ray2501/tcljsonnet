@@ -16,6 +16,7 @@ limitations under the License.
 
 #include <typeinfo>
 
+#include "lexer.h"
 #include "formatter.h"
 #include "string_utils.h"
 #include "unicode.h"
@@ -156,16 +157,22 @@ class Unparser {
         fodder_fill(o, fodder, space_before, separate_token);
     }
 
-    void unparseParams(const Fodder &fodder_l, const Params &params, bool trailing_comma,
+    void unparseParams(const Fodder &fodder_l, const ArgParams &params, bool trailing_comma,
                        const Fodder &fodder_r)
     {
         fill(fodder_l, false, false);
         o << "(";
         bool first = true;
-        for (const Param &param : params) {
+        for (const auto &param : params) {
             if (!first) o << ",";
-            fill(param.fodder, !first, true);
+            fill(param.idFodder, !first, true);
             o << unparse_id(param.id);
+            if (param.expr != nullptr) {
+                // default arg, no spacing: x=e
+                fill(param.eqFodder, false, false);
+                o << "=";
+                unparse(param.expr, false);
+            }
             fill(param.commaFodder, false, false);
             first = false;
         }
@@ -271,7 +278,14 @@ class Unparser {
             bool first = true;
             for (const auto &arg : ast->args) {
                 if (!first) o << ',';
-                unparse(arg.expr, !first);
+                bool space = !first;
+                if (arg.id != nullptr) {
+                    fill(arg.idFodder, space, true);
+                    o << unparse_id(arg.id);
+                    space = false;
+                    o << "=";
+                }
+                unparse(arg.expr, space);
                 fill(arg.commaFodder, false, false);
                 first = false;
             }
@@ -329,7 +343,7 @@ class Unparser {
             unparse(ast->right, true);
 
         } else if (auto *ast = dynamic_cast<const BuiltinFunction*>(ast_)) {
-            o << "/* builtin " << ast->id << " */ null";
+            o << "/* builtin " << ast->name << " */ null";
 
         } else if (auto *ast = dynamic_cast<const Conditional*>(ast_)) {
             o << "if";
@@ -627,11 +641,15 @@ class Pass {
         }
     }
 
-    virtual void params(Fodder &fodder_l, Params &params, Fodder &fodder_r)
+    virtual void params(Fodder &fodder_l, ArgParams &params, Fodder &fodder_r)
     {
         fodder(fodder_l);
-        for (Param &param : params) {
-            fodder(param.fodder);
+        for (auto &param : params) {
+            fodder(param.idFodder);
+            if (param.expr) {
+                fodder(param.eqFodder);
+                expr(param.expr);
+            }
             fodder(param.commaFodder);
         }
         fodder(fodder_r);
@@ -951,7 +969,7 @@ class Pass {
         }
     }
 
-    virtual void file(AST *body, Fodder &final_fodder)
+    virtual void file(AST *&body, Fodder &final_fodder)
     {
         expr(body);
         fodder(final_fodder);
@@ -960,6 +978,7 @@ class Pass {
 
 
 class EnforceStringStyle : public Pass {
+    using Pass::visit;
     public:
     EnforceStringStyle(Allocator &alloc, const FmtOpts &opts) : Pass(alloc, opts) { }
     void visit(LiteralString *lit)
@@ -971,16 +990,16 @@ class EnforceStringStyle : public Pass {
             if (c == '\'') num_single++;
             if (c == '"') num_double++;
         }
-        if (num_single > 0 && num_double > 0) return;
-        char style = opts.stringStyle == 's';
+        if (num_single > 0 && num_double > 0) return;  // Don't change it.
+        bool use_single = opts.stringStyle == 's';
         if (num_single > 0)
-            style = 'd';
+            use_single = false;
         if (num_double > 0)
-            style = 's';
+            use_single = true;
 
-        // Change it
-        lit->value = jsonnet_string_escape(canonical, style == 's');
-        lit->tokenKind = style ? LiteralString::SINGLE : LiteralString::DOUBLE;
+        // Change it.
+        lit->value = jsonnet_string_escape(canonical, use_single);
+        lit->tokenKind = use_single ? LiteralString::SINGLE : LiteralString::DOUBLE;
     }
 };
 
@@ -1108,6 +1127,7 @@ bool contains_newline(const Fodder &fodder)
 
 /* Commas should appear at the end of an object/array only if the closing token is on a new line. */
 class FixTrailingCommas : public Pass {
+    using Pass::visit;
     public:
     FixTrailingCommas(Allocator &alloc, const FmtOpts &opts) : Pass(alloc, opts) { }
     Fodder comments;
@@ -1182,6 +1202,7 @@ class FixTrailingCommas : public Pass {
 
 /* Remove nested parens. */
 class FixParens : public Pass {
+    using Pass::visit;
     public:
     FixParens(Allocator &alloc, const FmtOpts &opts) : Pass(alloc, opts) { }
     void visit(Parens *expr)
@@ -1200,6 +1221,7 @@ class FixParens : public Pass {
 
 /* Ensure ApplyBrace syntax sugar is used in the case of A + { }. */
 class FixPlusObject : public Pass {
+    using Pass::visit;
     public:
     FixPlusObject(Allocator &alloc, const FmtOpts &opts) : Pass(alloc, opts) { }
     void visitExpr(AST *&expr)
@@ -1225,6 +1247,7 @@ class FixPlusObject : public Pass {
 
 /* Remove final colon in slices. */
 class NoRedundantSliceColon : public Pass {
+    using Pass::visit;
     public:
     NoRedundantSliceColon(Allocator &alloc, const FmtOpts &opts) : Pass(alloc, opts) { }
 
@@ -1243,6 +1266,7 @@ class NoRedundantSliceColon : public Pass {
 
 /* Ensure syntax sugar is used where possible. */
 class PrettyFieldNames : public Pass {
+    using Pass::visit;
     public:
     PrettyFieldNames(Allocator &alloc, const FmtOpts &opts) : Pass(alloc, opts) { }
 
@@ -1258,6 +1282,9 @@ class PrettyFieldNames : public Pass {
                 continue;
             return false;
         }
+        // Filter out keywords.
+        if (lex_get_keyword_kind(encode_utf8(str)) != Token::IDENTIFIER)
+            return false;
         return true;
     }
 
@@ -1429,19 +1456,26 @@ class FixIndentation {
         }
     }
 
-    void params(Fodder &fodder_l, Params &params, bool trailing_comma, Fodder &fodder_r,
+    void params(Fodder &fodder_l, ArgParams &params, bool trailing_comma, Fodder &fodder_r,
                 const Indent &indent)
     {
         fill(fodder_l, false, false, indent.lineUp, indent.lineUp);
         column++;  // (
-        const Fodder &first_inside = params.size() == 0 ? fodder_r : params[0].fodder;
+        const Fodder &first_inside = params.size() == 0 ? fodder_r : params[0].idFodder;
+
         Indent new_indent = newIndent(first_inside, indent, column);
         bool first = true;
-        for (Param &param : params) {
+        for (auto &param : params) {
             if (!first) column++;  // ','
-            fill(param.fodder, !first, true, new_indent.lineUp, new_indent.lineUp);
+            fill(param.idFodder, !first, true, new_indent.lineUp);
             column += param.id->name.length();
-            fill(param.commaFodder, false, false, new_indent.lineUp, new_indent.lineUp);
+            if (param.expr != nullptr) {
+                // default arg, no spacing: x=e
+                fill(param.eqFodder, false, false, new_indent.lineUp);
+                column++;
+                expr(param.expr, new_indent, false);
+            }
+            fill(param.commaFodder, false, false, new_indent.lineUp);
             first = false;
         }
         if (trailing_comma)
@@ -1588,7 +1622,15 @@ class FixIndentation {
             first = true;
             for (auto &arg : ast->args) {
                 if (!first) column++;  // ","
-                expr(arg.expr, arg_indent, !first);
+
+                bool space = !first;
+                if (arg.id != nullptr) {
+                    fill(arg.idFodder, space, false, arg_indent.lineUp);
+                    column += arg.id->name.length();
+                    space = false;
+                    column++;  // "="
+                }
+                expr(arg.expr, arg_indent, space);
                 fill(arg.commaFodder, false, false, arg_indent.lineUp);
                 first = false;
             }
@@ -1682,10 +1724,8 @@ class FixIndentation {
             expr(ast->right, new_indent, true);
 
         } else if (auto *ast = dynamic_cast<BuiltinFunction*>(ast_)) {
-            std::stringstream ss;
-            ss << ast->id;
             column += 11;  // "/* builtin "
-            column += ss.str().length();
+            column += ast->name.length();
             column += 8;  // " */ null"
 
         } else if (auto *ast = dynamic_cast<Conditional*>(ast_)) {
@@ -1926,12 +1966,12 @@ std::string jsonnet_fmt(AST *ast, Fodder &final_fodder, const FmtOpts &opts)
         StripAllButComments(alloc, opts).file(ast, final_fodder);
     else if (opts.stripEverything)
         StripEverything(alloc, opts).file(ast, final_fodder);
+    if (opts.prettyFieldNames)
+        PrettyFieldNames(alloc, opts).file(ast, final_fodder);
     if (opts.stringStyle != 'l')
         EnforceStringStyle(alloc, opts).file(ast, final_fodder);
     if (opts.commentStyle != 'l')
         EnforceCommentStyle(alloc, opts).file(ast, final_fodder);
-    if (opts.prettyFieldNames)
-        PrettyFieldNames(alloc, opts).file(ast, final_fodder);
     if (opts.indent > 0)
         FixIndentation(alloc, opts).file(ast, final_fodder);
 

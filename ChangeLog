@@ -1,3 +1,7 @@
+2016-07-07  Danilo Chang  <ray2501@gmail.com>
+
+	* Update jsonnet code base to v0.8.9
+
 2016-05-23  Danilo Chang  <ray2501@gmail.com>
 
 	* Change file name: tcljsonnet.c to tcljsonnet.cpp

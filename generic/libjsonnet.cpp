@@ -30,6 +30,7 @@ extern "C" {
 
 #include "desugarer.h"
 #include "formatter.h"
+#include "json.h"
 #include "parser.h"
 #include "static_analysis.h"
 #include "vm.h"
@@ -50,13 +51,117 @@ static char *from_string(JsonnetVm* vm, const std::string &v)
 static char *default_import_callback(void *ctx, const char *dir, const char *file,
                                      char **found_here_cptr, int *success);
 
+const char *jsonnet_json_extract_string(JsonnetVm *vm, const struct JsonnetJsonValue *v)
+{
+    (void) vm;
+    if (v->kind != JsonnetJsonValue::STRING)
+        return nullptr;
+    return v->string.c_str();
+}
+
+int jsonnet_json_extract_number(struct JsonnetVm *vm, const struct JsonnetJsonValue *v, double *out)
+{
+    (void) vm;
+    if (v->kind != JsonnetJsonValue::NUMBER)
+        return 0;
+    *out = v->number;
+    return 1;
+}
+
+int jsonnet_json_extract_bool(struct JsonnetVm *vm, const struct JsonnetJsonValue *v)
+{
+    (void) vm;
+    if (v->kind != JsonnetJsonValue::BOOL) return 2;
+    return v->number != 0;
+}
+
+int jsonnet_json_extract_null(struct JsonnetVm *vm, const struct JsonnetJsonValue *v)
+{
+    (void) vm;
+    return v->kind == JsonnetJsonValue::NULL_KIND;
+}
+
+JsonnetJsonValue *jsonnet_json_make_string(JsonnetVm *vm, const char *v)
+{
+    (void) vm;
+    JsonnetJsonValue *r = new JsonnetJsonValue();
+    r->kind = JsonnetJsonValue::STRING;
+    r->string = v;
+    return r;
+}
+
+JsonnetJsonValue *jsonnet_json_make_number(struct JsonnetVm *vm, double v)
+{
+    (void) vm;
+    JsonnetJsonValue *r = new JsonnetJsonValue();
+    r->kind = JsonnetJsonValue::NUMBER;
+    r->number = v;
+    return r;
+}
+
+JsonnetJsonValue *jsonnet_json_make_bool(struct JsonnetVm *vm, int v)
+{
+    (void) vm;
+    JsonnetJsonValue *r = new JsonnetJsonValue();
+    r->kind = JsonnetJsonValue::BOOL;
+    r->number = v != 0;
+    return r;
+}
+
+JsonnetJsonValue *jsonnet_json_make_null(struct JsonnetVm *vm)
+{
+    (void) vm;
+    JsonnetJsonValue *r = new JsonnetJsonValue();
+    r->kind = JsonnetJsonValue::NULL_KIND;
+    return r;
+}
+
+JsonnetJsonValue *jsonnet_json_make_array(JsonnetVm *vm)
+{
+    (void) vm;
+    JsonnetJsonValue *r = new JsonnetJsonValue();
+    r->kind = JsonnetJsonValue::ARRAY;
+    return r;
+}
+
+void jsonnet_json_array_append(JsonnetVm *vm, JsonnetJsonValue *arr, JsonnetJsonValue *v)
+{
+    (void) vm;
+    assert(arr->kind == JsonnetJsonValue::ARRAY);
+    arr->elements.emplace_back(v);
+}
+
+JsonnetJsonValue *jsonnet_json_make_object(JsonnetVm *vm)
+{
+    (void) vm;
+    JsonnetJsonValue *r = new JsonnetJsonValue();
+    r->kind = JsonnetJsonValue::OBJECT;
+    return r;
+}
+
+void jsonnet_json_object_append(JsonnetVm *vm, JsonnetJsonValue *obj,
+                                const char *f, JsonnetJsonValue *v)
+{
+    (void) vm;
+    assert(obj->kind == JsonnetJsonValue::OBJECT);
+    obj->fields[std::string(f)] = std::unique_ptr<JsonnetJsonValue>(v);
+}
+
+void jsonnet_json_destroy(JsonnetVm *vm, JsonnetJsonValue *v)
+{
+    (void) vm;
+    delete v;
+}
+
 struct JsonnetVm {
     double gcGrowthTrigger;
     unsigned maxStack;
     unsigned gcMinObjects;
     unsigned maxTrace;
     std::map<std::string, VmExt> ext;
+    std::map<std::string, VmExt> tla;
     JsonnetImportCallback *importCallback;
+    VmNativeCallbackMap nativeCallbacks;
     void *importCallbackContext;
     bool stringOutput;
     std::vector<std::string> jpaths;
@@ -211,6 +316,16 @@ void jsonnet_import_callback(struct JsonnetVm *vm, JsonnetImportCallback *cb, vo
     vm->importCallbackContext = ctx;
 }
 
+void jsonnet_native_callback(struct JsonnetVm *vm, const char *name, JsonnetNativeCallback *cb,
+                             void *ctx, const char * const *params)
+{
+    std::vector<std::string> params2;
+    for (; *params != nullptr; params++)
+        params2.push_back(*params);
+    vm->nativeCallbacks[name] = VmNativeCallback {cb, ctx, params2};
+}
+
+
 void jsonnet_ext_var(JsonnetVm *vm, const char *key, const char *val)
 {
     vm->ext[key] = VmExt(val, false);
@@ -219,6 +334,16 @@ void jsonnet_ext_var(JsonnetVm *vm, const char *key, const char *val)
 void jsonnet_ext_code(JsonnetVm *vm, const char *key, const char *val)
 {
     vm->ext[key] = VmExt(val, true);
+}
+
+void jsonnet_tla_var(JsonnetVm *vm, const char *key, const char *val)
+{
+    vm->tla[key] = VmExt(val, false);
+}
+
+void jsonnet_tla_code(JsonnetVm *vm, const char *key, const char *val)
+{
+    vm->tla[key] = VmExt(val, true);
 }
 
 void jsonnet_fmt_debug_desugaring(JsonnetVm *vm, int v)
@@ -294,7 +419,7 @@ static char *jsonnet_fmt_snippet_aux(JsonnetVm *vm, const char *filename, const 
         Fodder final_fodder = tokens.front().fodder;
 
         if (vm->fmtDebugDesugaring)
-            jsonnet_desugar(&alloc, expr);
+            jsonnet_desugar(&alloc, expr, &vm->tla);
 
         json_str = jsonnet_fmt(expr, final_fodder, vm->fmtOpts);
 
@@ -355,14 +480,15 @@ static char *jsonnet_evaluate_snippet_aux(JsonnetVm *vm, const char *filename,
 
         expr = jsonnet_parse(&alloc, tokens);
 
-        jsonnet_desugar(&alloc, expr);
+        jsonnet_desugar(&alloc, expr, &vm->tla);
 
         jsonnet_static_analysis(expr);
         switch (kind) {
             case REGULAR: {
                 std::string json_str = jsonnet_vm_execute(
-                    &alloc, expr, vm->ext, vm->maxStack, vm->gcMinObjects, vm->gcGrowthTrigger,
-                    vm->importCallback, vm->importCallbackContext, vm->stringOutput);
+                    &alloc, expr, vm->ext, vm->maxStack, vm->gcMinObjects,
+                    vm->gcGrowthTrigger, vm->nativeCallbacks, vm->importCallback,
+                    vm->importCallbackContext, vm->stringOutput);
                 json_str += "\n";
                 *error = false;
                 return from_string(vm, json_str);
@@ -371,8 +497,9 @@ static char *jsonnet_evaluate_snippet_aux(JsonnetVm *vm, const char *filename,
 
             case MULTI: {
                 std::map<std::string, std::string> files = jsonnet_vm_execute_multi(
-                    &alloc, expr, vm->ext, vm->maxStack, vm->gcMinObjects, vm->gcGrowthTrigger,
-                    vm->importCallback, vm->importCallbackContext, vm->stringOutput);
+                    &alloc, expr, vm->ext, vm->maxStack, vm->gcMinObjects,
+                    vm->gcGrowthTrigger, vm->nativeCallbacks, vm->importCallback,
+                    vm->importCallbackContext, vm->stringOutput);
                 size_t sz = 1; // final sentinel
                 for (const auto &pair : files) {
                     sz += pair.first.length() + 1; // include sentinel
@@ -399,8 +526,9 @@ static char *jsonnet_evaluate_snippet_aux(JsonnetVm *vm, const char *filename,
 
             case STREAM: {
                 std::vector<std::string> documents = jsonnet_vm_execute_stream(
-                    &alloc, expr, vm->ext, vm->maxStack, vm->gcMinObjects, vm->gcGrowthTrigger,
-                    vm->importCallback, vm->importCallbackContext);
+                    &alloc, expr, vm->ext, vm->maxStack, vm->gcMinObjects,
+                    vm->gcGrowthTrigger, vm->nativeCallbacks, vm->importCallback,
+                    vm->importCallbackContext);
                 size_t sz = 1; // final sentinel
                 for (const auto &doc : documents) {
                     sz += doc.length() + 2; // Add a '\n' as well as sentinel
@@ -452,6 +580,7 @@ static char *jsonnet_evaluate_snippet_aux(JsonnetVm *vm, const char *filename,
         return from_string(vm, ss.str());
     }
 
+    return nullptr;  // Quiet, compiler.
 }
 
 static char *jsonnet_evaluate_file_aux(JsonnetVm *vm, const char *filename, int *error, EvalKind kind)
