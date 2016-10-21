@@ -97,7 +97,8 @@ void fodder_fill(std::ostream &o, const Fodder &fodder, bool space_before, bool 
 }
 
 /** A model of fodder_fill that just keeps track of the column counter. */
-static void fodder_count(unsigned &column, const Fodder &fodder, bool space_before, bool separate_token)
+static void fodder_count(unsigned &column, const Fodder &fodder, bool space_before,
+                         bool separate_token)
 {
     for (const auto &fod : fodder) {
         switch (fod.kind) {
@@ -591,14 +592,6 @@ static void fodder_move_front(Fodder &a, Fodder &b)
     a = concat_fodder(b, a);
     b.clear();
 }
-
-/** Move b to the back of a. */
-static void fodder_move_back(Fodder &a, Fodder &b)
-{
-    a = concat_fodder(a, b);
-    b.clear();
-}
-
 
 /** A generic Pass that does nothing but can be extended to easily define real passes.
  */
@@ -1140,10 +1133,10 @@ class FixTrailingCommas : public Pass {
             if (!need_comma) {
                 // Remove it but keep fodder.
                 trailing_comma = false;
-                fodder_move_back(close_fodder, last_comma_fodder);
+                fodder_move_front(close_fodder, last_comma_fodder);
             } else if (contains_newline(last_comma_fodder)) {
                 // The comma is needed but currently is separated by a newline.
-                fodder_move_back(close_fodder, last_comma_fodder);
+                fodder_move_front(close_fodder, last_comma_fodder);
             }
         } else {
             if (need_comma) {
@@ -1336,12 +1329,11 @@ class PrettyFieldNames : public Pass {
 
 class FixIndentation {
 
-    Allocator &alloc;
     FmtOpts opts;
     unsigned column;
 
     public:
-    FixIndentation(Allocator &alloc, const FmtOpts &opts) : alloc(alloc), opts(opts) { }
+    FixIndentation(const FmtOpts &opts) : opts(opts) { }
 
     void fill(Fodder &fodder, bool space_before, bool separate_token,
               unsigned all_but_last_indent, unsigned last_indent)
@@ -1973,7 +1965,7 @@ std::string jsonnet_fmt(AST *ast, Fodder &final_fodder, const FmtOpts &opts)
     if (opts.commentStyle != 'l')
         EnforceCommentStyle(alloc, opts).file(ast, final_fodder);
     if (opts.indent > 0)
-        FixIndentation(alloc, opts).file(ast, final_fodder);
+        FixIndentation(opts).file(ast, final_fodder);
 
     std::stringstream ss;
     Unparser unparser(ss, opts);

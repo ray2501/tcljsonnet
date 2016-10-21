@@ -127,7 +127,8 @@ struct Frame {
     std::vector<HeapThunk*> thunks;
 
     /** The context is used in error messages to attempt to find a reasonable name for the
-     * object, function, or thunk value being executed.
+     * object, function, or thunk value being executed.  If it is a thunk, it is filled
+     * with the value when the frame terminates.
      */
     HeapEntity *context;
 
@@ -445,6 +446,9 @@ class Interpreter {
      */
     Allocator *alloc;
 
+    /** Used to "name" thunks created to cache imports. */
+    const Identifier *idImport;
+
     /** Used to "name" thunks created on the inside of an array. */
     const Identifier *idArrayElement;
 
@@ -460,11 +464,15 @@ class Interpreter {
     struct ImportCacheValue {
         std::string foundHere;
         std::string content;
+        /** Thunk to store cached result of execution.
+         *
+         * Null if this file was only ever successfully imported with importstr.
+         */
+        HeapThunk *thunk;
     };
 
     /** Cache for imported Jsonnet files. */
-    std::map<std::pair<std::string, String>,
-             const ImportCacheValue *> cachedImports;
+    std::map<std::pair<std::string, String>, ImportCacheValue *> cachedImports;
 
     /** External variables for std.extVar. */
     ExtMap externalVars;
@@ -503,6 +511,13 @@ class Interpreter {
 
             // Mark from the scratch register
             heap.markFrom(scratch);
+
+            // Mark from cached imports
+            for (const auto &pair : cachedImports) {
+                HeapThunk *thunk = pair.second->thunk;
+                if (thunk != nullptr)
+                    heap.markFrom(thunk);
+            }
 
             // Delete unreachable objects.
             heap.sweep();
@@ -681,19 +696,25 @@ class Interpreter {
     /** Import another Jsonnet file.
      *
      * If the file has already been imported, then use that version.  This maintains
-     * referential transparency in the case of writes to disk during execution.
+     * referential transparency in the case of writes to disk during execution.  The
+     * cache holds a thunk in order to cache the resulting value of execution.
      *
      * \param loc Location of the import statement.
      * \param file Path to the filename.
      */
-    AST *import(const LocationRange &loc, const LiteralString *file)
+    HeapThunk *import(const LocationRange &loc, const LiteralString *file)
     {
-        const ImportCacheValue *input = importString(loc, file);
-        Tokens tokens = jsonnet_lex(input->foundHere, input->content.c_str());
-        AST *expr = jsonnet_parse(alloc, tokens);
-        jsonnet_desugar(alloc, expr, nullptr);
-        jsonnet_static_analysis(expr);
-        return expr;
+        ImportCacheValue *input = importString(loc, file);
+        if (input->thunk == nullptr) {
+            Tokens tokens = jsonnet_lex(input->foundHere, input->content.c_str());
+            AST *expr = jsonnet_parse(alloc, tokens);
+            jsonnet_desugar(alloc, expr, nullptr);
+            jsonnet_static_analysis(expr);
+            // If no errors then populate cache.
+            auto *thunk = makeHeap<HeapThunk>(idImport, nullptr, 0, expr);
+            input->thunk = thunk;
+        }
+        return input->thunk;
     }
 
     /** Import a file as a string.
@@ -705,14 +726,14 @@ class Interpreter {
      * \param file Path to the filename.
      * \param found_here If non-null, used to store the actual path of the file
      */
-    const ImportCacheValue *importString(const LocationRange &loc, const LiteralString *file)
+    ImportCacheValue *importString(const LocationRange &loc, const LiteralString *file)
     {
         std::string dir = dir_name(loc.file);
 
         const String &path = file->value;
 
         std::pair<std::string, String> key(dir, path);
-        const ImportCacheValue *cached_value = cachedImports[key];
+        ImportCacheValue *cached_value = cachedImports[key];
         if (cached_value != nullptr)
             return cached_value;
 
@@ -734,6 +755,7 @@ class Interpreter {
         auto *input_ptr = new ImportCacheValue();
         input_ptr->foundHere = found_here_cptr;
         input_ptr->content = input;
+        input_ptr->thunk = nullptr;  // May be filled in later by import().
         ::free(found_here_cptr);
         cachedImports[key] = input_ptr;
         return input_ptr;
@@ -783,6 +805,7 @@ class Interpreter {
       : heap(gc_min_objects, gc_growth_trigger),
         stack(max_stack),
         alloc(alloc),
+        idImport(alloc->makeIdentifier(U"import")),
         idArrayElement(alloc->makeIdentifier(U"array_element")),
         idInvariant(alloc->makeIdentifier(U"object_assert")),
         idJsonObjVar(alloc->makeIdentifier(U"_")),
@@ -1270,47 +1293,51 @@ class Interpreter {
         return nullptr;
     } 
 
-    void jsonToHeap(const std::unique_ptr<JsonnetJsonValue> &v, Value &attach)
+    void jsonToHeap(const std::unique_ptr<JsonnetJsonValue> &v, bool &filled, Value &attach)
     {
         // In order to not anger the garbage collector, assign to attach immediately after
         // making the heap object.
         switch (v->kind) {
             case JsonnetJsonValue::STRING:
             attach = makeString(decode_utf8(v->string));
+            filled = true;
             break;
 
             case JsonnetJsonValue::BOOL:
             attach = makeBoolean(v->number != 0.0);
+            filled = true;
             break;
 
             case JsonnetJsonValue::NUMBER:
             attach = makeDouble(v->number);
+            filled = true;
             break;
 
             case JsonnetJsonValue::NULL_KIND:
             attach = makeNull();
+            filled = true;
             break;
 
             case JsonnetJsonValue::ARRAY: {
                 attach = makeArray(std::vector<HeapThunk*>{});
+                filled = true;
                 auto *arr = static_cast<HeapArray*>(attach.v.h);
                 for (size_t i = 0; i < v->elements.size() ; ++i) {
                     arr->elements.push_back(
                         makeHeap<HeapThunk>(idArrayElement, nullptr, 0, nullptr));
-                    arr->elements[i]->filled = true;
-                    jsonToHeap(v->elements[i], arr->elements[i]->content);
+                    jsonToHeap(v->elements[i], arr->elements[i]->filled, arr->elements[i]->content);
                 }
             } break;
 
             case JsonnetJsonValue::OBJECT: {
                 attach = makeObject<HeapComprehensionObject>(
                     BindingFrame{}, jsonObjVar, idJsonObjVar, BindingFrame{});
+                filled = true;
                 auto *obj = static_cast<HeapComprehensionObject*>(attach.v.h);
                 for (const auto &pair : v->fields) {
                     auto *thunk = makeHeap<HeapThunk>(idJsonObjVar, nullptr, 0, nullptr);
                     obj->compValues[alloc->makeIdentifier(decode_utf8(pair.first))] = thunk;
-                    thunk->filled = true;
-                    jsonToHeap(pair.second, thunk->content);
+                    jsonToHeap(pair.second, thunk->filled, thunk->content);
                 }
             } break;
         }
@@ -1488,10 +1515,14 @@ class Interpreter {
 
             case AST_IMPORT: {
                 const auto &ast = *static_cast<const Import*>(ast_);
-                AST *expr = import(ast.location, ast.file);
-                ast_ = expr;
-                stack.newCall(ast.location, nullptr, nullptr, 0, BindingFrame());
-                goto recurse;
+                HeapThunk *thunk = import(ast.location, ast.file);
+                if (thunk->filled) {
+                    scratch = thunk->content;
+                } else {
+                    stack.newCall(ast.location, thunk, thunk->self, thunk->offset, thunk->upValues);
+                    ast_ = thunk->body;
+                    goto recurse;
+                }
             } break;
 
             case AST_IMPORTSTR: {
@@ -2092,7 +2123,8 @@ class Interpreter {
                         std::unique_ptr<JsonnetJsonValue> r(cb.cb(cb.ctx, &args3[0], &succ));
 
                         if (succ) {
-                            jsonToHeap(r, scratch);
+                            bool unused;
+                            jsonToHeap(r, unused, scratch);
                         } else {
                             if (r->kind != JsonnetJsonValue::STRING) {
                                 throw makeError(
@@ -2544,7 +2576,8 @@ class Interpreter {
                         // get GC'd.
                         scratch = stack.top().val;
                         stack.pop();
-                        ss << prefix << indent2 << U"\"" << f.first << U"\": " << vstr;
+                        ss << prefix << indent2 << jsonnet_string_unparse(f.first, false)
+                           << U": " << vstr;
                         prefix = multiline ? U",\n" : U", ";
                     }
                     ss << (multiline ? U"\n" : U"") << indent << U"}";
