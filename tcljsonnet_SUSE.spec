@@ -5,12 +5,16 @@
 Name:          tcljsonnet
 Summary:       Jsonnet wrapper for Tcl
 Version:       0.5
-Release:       2
+Release:       3
 License:       Apache License, Version 2.0
 Group:         Development/Libraries/Tcl
 Source:        https://sites.google.com/site/ray2501/tcljsonnet/tcljsonnet_0.5.zip
-URL:           https://sites.google.com/site/ray2501/tcljsonnet 
+URL:           https://sites.google.com/site/ray2501/tcljsonnet
+BuildRequires:	autoconf
+BuildRequires:	automake
+BuildRequires:	libstdc++-devel
 Buildrequires: tcl >= 8.4
+Requires: tcl >= 8.4
 BuildRoot:     %{buildroot}
 
 %description
