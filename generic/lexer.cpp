@@ -97,7 +97,7 @@ static void lex_ws(const char *&c, unsigned &new_lines, unsigned &indent, const 
 }
 
 
-/** 
+/**
 # Consume all text until the end of the line, return number of newlines after that and indent
 */
 static void lex_until_newline(const char *&c, std::string &text, unsigned &blanks, unsigned &indent,
@@ -379,6 +379,10 @@ Tokens jsonnet_lex(const std::string &filename, const char *input)
     bool fresh_line = true;  // Are we tokenizing from the beginning of a new line?
 
     while (*c!='\0') {
+
+        // Used to ensure we have actually advanced the pointer by the end of the iteration.
+        const char *original_c = c;
+
         Token::Kind kind;
         std::string data;
         std::string string_block_indent;
@@ -507,6 +511,43 @@ Tokens jsonnet_lex(const std::string &filename, const char *input)
             }
             break;
 
+            // Verbatim string literals.
+            // ' and " quoting is interpreted here, unlike non-verbatim strings
+            // where it is done later by jsonnet_string_unescape.  This is OK
+            // in this case because no information is lost by resoving the
+            // repeated quote into a single quote, so we can go back to the
+            // original form in the formatter.
+            case '@': {
+                c++;
+                if (*c != '"' && *c != '\'') {
+                    std::stringstream ss;
+                    ss << "Couldn't lex verbatim string, junk after '@': " << *c;
+                    throw StaticError(filename, begin, ss.str());
+                }
+                const char quot = *c;
+                c++;  // Advance beyond the opening quote.
+                for (; ; ++c) {
+                    if (*c == '\0')  {
+                        throw StaticError(filename, begin, "Unterminated verbatim string");
+                    }
+                    if (*c == quot) {
+                        if (*(c+1) == quot) {
+                           c++;
+                       } else {
+                           break;
+                       }
+                    }
+                    data += *c;
+                }
+                c++;  // Advance beyond the closing quote.
+                if (quot == '"') {
+                    kind = Token::VERBATIM_STRING_DOUBLE;
+                } else {
+                    kind = Token::VERBATIM_STRING_SINGLE;
+                }
+            }
+            break;
+
             // Keywords
             default:
             if (is_identifier_first(*c)) {
@@ -534,7 +575,7 @@ Tokens jsonnet_lex(const std::string &filename, const char *input)
                 if (*c == '/' && *(c+1) == '*') {
 
                     unsigned margin = c - line_start;
- 
+
                     const char *initial_c = c;
                     c += 2;  // Avoid matching /*/: skip the /* before starting the search for */.
 
@@ -598,7 +639,11 @@ Tokens jsonnet_lex(const std::string &filename, const char *input)
                 }
 
                 // Text block
-                if (*c == '|' && *(c+1) == '|' && *(c+2) == '|' && *(c+3) == '\n') {
+                if (*c == '|' && *(c+1) == '|' && *(c+2) == '|') {
+                    if (*(c+3) != '\n') {
+                        auto msg = "Text block syntax requires new line after |||.";
+                        throw StaticError(filename, begin, msg);
+                    }
                     std::stringstream block;
                     c += 4; // Skip the "|||\n"
                     line_number++;
@@ -691,6 +736,12 @@ Tokens jsonnet_lex(const std::string &filename, const char *input)
                     ss << "'" << *c << "'";
                 throw StaticError(filename, begin, ss.str());
             }
+        }
+
+        // Ensure that a bug in the above code does not cause an infinite memory consuming loop due
+        // to pushing empty tokens.
+        if (c == original_c) {
+            throw StaticError(filename, begin, "Internal lexing error:  Pointer did not advance");
         }
 
         Location end(line_number, c - line_start);

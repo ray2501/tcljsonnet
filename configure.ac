@@ -72,8 +72,9 @@ TEA_SETUP_COMPILER
 #-----------------------------------------------------------------------
 
 TEA_ADD_SOURCES([tcljsonnet.cpp generic/desugarer.cpp generic/lexer.cpp generic/formatter.cpp
-                  generic/libjsonnet.cpp generic/parser.cpp generic/static_analysis.cpp
-                  generic/string_utils.cpp generic/vm.cpp])
+                  generic/libjsonnet.cpp generic/parser.cpp generic/pass.cpp 
+                  generic/static_analysis.cpp generic/string_utils.cpp generic/vm.cpp
+                  generic/md5.cpp])
 TEA_ADD_HEADERS([])
 TEA_ADD_INCLUDES([-I${srcdir}/generic])
 TEA_ADD_LIBS([-lm])

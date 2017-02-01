@@ -5334,8 +5334,9 @@ done
 
 
     vars="tcljsonnet.cpp generic/desugarer.cpp generic/lexer.cpp generic/formatter.cpp
-                  generic/libjsonnet.cpp generic/parser.cpp generic/static_analysis.cpp
-                  generic/string_utils.cpp generic/vm.cpp"
+                  generic/libjsonnet.cpp generic/parser.cpp generic/pass.cpp
+                  generic/static_analysis.cpp generic/string_utils.cpp generic/vm.cpp
+                  generic/md5.cpp"
     for i in $vars; do
 	case $i in
 	    \$*)

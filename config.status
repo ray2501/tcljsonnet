@@ -610,9 +610,9 @@ S["STUBS_BUILD"]="1"
 S["SHARED_BUILD"]="1"
 S["TCL_THREADS"]="1"
 S["TCL_INCLUDES"]="-I\"/usr/include\""
-S["PKG_OBJECTS"]=" tcljsonnet.o desugarer.o lexer.o formatter.o libjsonnet.o parser.o static_analysis.o string_utils.o vm.o"
-S["PKG_SOURCES"]=" tcljsonnet.cpp generic/desugarer.cpp generic/lexer.cpp generic/formatter.cpp generic/libjsonnet.cpp generic/parser.cpp generic/static_analysis.cpp "\
-"generic/string_utils.cpp generic/vm.cpp"
+S["PKG_OBJECTS"]=" tcljsonnet.o desugarer.o lexer.o formatter.o libjsonnet.o parser.o pass.o static_analysis.o string_utils.o vm.o md5.o"
+S["PKG_SOURCES"]=" tcljsonnet.cpp generic/desugarer.cpp generic/lexer.cpp generic/formatter.cpp generic/libjsonnet.cpp generic/parser.cpp generic/pass.cpp generic/sta"\
+"tic_analysis.cpp generic/string_utils.cpp generic/vm.cpp generic/md5.cpp"
 S["MATH_LIBS"]="-lieee "
 S["EGREP"]="/usr/bin/grep -E"
 S["GREP"]="/usr/bin/grep"

@@ -323,9 +323,9 @@ struct BuiltinFunction : public AST {
  */
 struct Conditional : public AST {
     AST *cond;
-	Fodder thenFodder;
+    Fodder thenFodder;
     AST *branchTrue;
-	Fodder elseFodder;
+    Fodder elseFodder;
     AST *branchFalse;
     Conditional(const LocationRange &lr, const Fodder &open_fodder, AST *cond,
                 const Fodder &then_fodder, AST *branch_true, const Fodder &else_fodder,
@@ -405,7 +405,7 @@ struct Index : public AST {
       : AST(lr, AST_INDEX, open_fodder), target(target), dotFodder(dot_fodder), isSlice(false),
         index(nullptr), end(nullptr), step(nullptr), idFodder(id_fodder), id(id)
     { }
-    // Use this constructor for e[x:y:z] with nullptr for end or step if not present. 
+    // Use this constructor for e[x:y:z] with nullptr for index, end or step if not present. 
     Index(const LocationRange &lr, const Fodder &open_fodder, AST *target, const Fodder &dot_fodder,
           bool is_slice, AST *index, const Fodder &end_colon_fodder, AST *end,
           const Fodder &step_colon_fodder, AST *step, const Fodder &id_fodder)
@@ -473,7 +473,7 @@ struct LiteralNumber : public AST {
 /** Represents JSON strings. */
 struct LiteralString : public AST {
     String value;
-    enum TokenKind { SINGLE, DOUBLE, BLOCK };
+    enum TokenKind { SINGLE, DOUBLE, BLOCK, VERBATIM_SINGLE, VERBATIM_DOUBLE };
     TokenKind tokenKind;
     std::string blockIndent;  // Only contains ' ' and '\t'.
     std::string blockTermIndent;  // Only contains ' ' and '\t'.
@@ -747,6 +747,12 @@ class Allocator {
     template <class T, class... Args> T* make(Args&&... args)
     {
         auto r = new T(std::forward<Args>(args)...);
+        allocated.push_back(r);
+        return r;
+    }
+
+    template <class T> T *clone(T * ast) {
+        auto r = new T(*ast);
         allocated.push_back(r);
         return r;
     }

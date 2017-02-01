@@ -33,8 +33,8 @@
 # $(srcdir) or in the generic, win or unix subdirectory.
 #========================================================================
 
-PKG_SOURCES	=  tcljsonnet.cpp generic/desugarer.cpp generic/lexer.cpp generic/formatter.cpp generic/libjsonnet.cpp generic/parser.cpp generic/static_analysis.cpp generic/string_utils.cpp generic/vm.cpp
-PKG_OBJECTS	=  tcljsonnet.o desugarer.o lexer.o formatter.o libjsonnet.o parser.o static_analysis.o string_utils.o vm.o
+PKG_SOURCES	=  tcljsonnet.cpp generic/desugarer.cpp generic/lexer.cpp generic/formatter.cpp generic/libjsonnet.cpp generic/parser.cpp generic/pass.cpp generic/static_analysis.cpp generic/string_utils.cpp generic/vm.cpp generic/md5.cpp
+PKG_OBJECTS	=  tcljsonnet.o desugarer.o lexer.o formatter.o libjsonnet.o parser.o pass.o static_analysis.o string_utils.o vm.o md5.o
 
 PKG_STUB_SOURCES = 
 PKG_STUB_OBJECTS = 
