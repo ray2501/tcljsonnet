@@ -8,7 +8,7 @@ templating languages bring to plain text.
 
 For additional information on Jsonnet see
 
-[http://jsonnet.org] (http://jsonnet.org)
+[http://jsonnet.org](http://jsonnet.org)
 
 
 License
