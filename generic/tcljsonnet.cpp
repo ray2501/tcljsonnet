@@ -29,6 +29,9 @@ extern "C" {
 #include <new>
 #include <exception>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 int evaluateFile (ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *CONST obj[])
 {
     char *file_path = NULL;
@@ -148,3 +151,7 @@ int Jsonnet_Init(Tcl_Interp *interp)
 
     return TCL_OK;
 }
+
+#ifdef __cplusplus
+}
+#endif
