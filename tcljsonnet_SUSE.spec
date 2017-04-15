@@ -13,7 +13,7 @@ URL:           https://sites.google.com/site/ray2501/tcljsonnet
 BuildRequires:	autoconf
 BuildRequires:	automake
 BuildRequires:	libstdc++-devel
-Buildrequires: tcl >= 8.4
+Buildrequires: tcl-devel >= 8.4
 Requires: tcl >= 8.4
 BuildRoot:     %{buildroot}
 
