@@ -12,6 +12,7 @@ Source:        https://sites.google.com/site/ray2501/tcljsonnet/tcljsonnet_0.6.z
 URL:           https://sites.google.com/site/ray2501/tcljsonnet
 BuildRequires:	autoconf
 BuildRequires:	automake
+BuildRequires:	gcc-c++
 BuildRequires:	libstdc++-devel
 BuildRequires: tcl-devel >= 8.4
 Requires: tcl >= 8.4
