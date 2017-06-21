@@ -25,7 +25,7 @@ limitations under the License.
  */
 
 
-#define LIB_JSONNET_VERSION "v0.9.0"
+#define LIB_JSONNET_VERSION "v0.9.4"
 
 
 /** Return the version string of the Jsonnet interpreter.  Conforms to semantic versioning
@@ -177,7 +177,7 @@ void jsonnet_import_callback(struct JsonnetVm *vm, JsonnetImportCallback *cb, vo
  * \param name The name of the function as visible to Jsonnet code, e.g. "foo".
  * \param cb The PURE function that implements the behavior you want.
  * \param ctx User pointer, stash non-global state you need here.
- * \param params The names of the params.  Must be valid Jsonnet identifiers.
+ * \param params NULL-terminated array of the names of the params.  Must be valid identifiers.
  */
 void jsonnet_native_callback(struct JsonnetVm *vm, const char *name, JsonnetNativeCallback *cb,
                              void *ctx, const char * const *params);

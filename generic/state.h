@@ -179,7 +179,7 @@ struct HeapSimpleObject : public HeapLeafObject {
     { }
 };
 
-/** Objects created by the extendby construct. */
+/** Objects created by the + construct. */
 struct HeapExtendedObject : public HeapObject {
     /** The left hand side of the construct. */
     HeapObject *left;
@@ -259,8 +259,8 @@ struct HeapClosure : public HeapEntity {
 
 /** Stores a simple string on the heap. */
 struct HeapString : public HeapEntity {
-    const String value;
-    HeapString(const String &value)
+    const UString value;
+    HeapString(const UString &value)
       : value(value)
     { }
 };
