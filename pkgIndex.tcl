@@ -1,5 +1,5 @@
 #
 # Tcl package index file
 #
-package ifneeded jsonnet 0.6 \
-    [list load [file join $dir libjsonnet0.6.so] jsonnet]
+package ifneeded jsonnet 0.7 \
+    [list load [file join $dir libjsonnet0.7.so] jsonnet]
