@@ -50,6 +50,18 @@ generating native Windows binaries. Using the Msys + Mingw build tools
 means that you can use the same configure script as per the Unix build
 to create a Makefile.
 
+Or you can use Visual Studio 2017 to build this extension. A bad news is
+Visual Studio 2017 looks like has old format compatible issue with MinGW-w64
+library files. So I test Visual Studio 2017 with
+[Magicsplat Tcl/Tk for Windows](http://www.magicsplat.com/tcl-installer/index.html) 
+(it is compiled by Visual Studio) and install folder is c:\Tcl.
+
+Below is using `Visual Studio Tools`, `x64 Native Tools Command Prompt for VS 2017`
+to build 64bit version. First step is enter tcljsonnet win folder, then:
+
+	C:\src\tcljsonnet\win> nmake -f makefile.vc MACHINE=IA64
+	C:\src\tcljsonnet\win> nmake -f makefile.vc MACHINE=IA64 install	
+
 
 Implement commands
 =====
