@@ -3,7 +3,7 @@
 %define buildroot %{_tmppath}/%{name}
 
 Name:          tcljsonnet
-Summary:       Jsonnet wrapper for Tcl
+Summary:       Tcl wrapper for Jsonnet library
 Version:       0.8
 Release:       1
 License:       Apache License, Version 2.0
@@ -19,7 +19,7 @@ Requires: tcl >= 8.4
 BuildRoot:     %{buildroot}
 
 %description
-Jsonnet wrapper for Tcl.
+It is Tcl wrapper for Jsonnet library.
 
 Jsonnet is a domain specific configuration language that helps you 
 define JSON data. Jsonnet lets you compute fragments of JSON within 
