@@ -1,0 +1,52 @@
+# tcljsonnet.test --
+#
+#	Tests for tcljsonnet
+#------------------------------------------------------------------------------
+
+lappend auto_path .
+if {[lsearch [namespace children] ::tcltest] == -1} {
+    package require tcltest 2
+    namespace import -force ::tcltest::*
+}
+loadTestedCommands
+package require jsonnet
+
+#-------------------------------------------------------------------------------
+
+test tcljsonnet-1.1 {evaluateSnippet} {*}{
+    -body {
+        set snippet {// example_operators.jsonnet
+        {
+            foo: [1, 2, 3],
+            bar: [x * x for x in self.foo if x >= 2],
+            baz: { ["field" + x]: x for x in self.foo },
+            obj: { ["foo" + "bar"]: 3 },
+        }}
+        
+        set result [jsonnet::evaluateSnippet $snippet]
+    }
+    -result {{
+   "bar": [
+      4,
+      9
+   ],
+   "baz": {
+      "field1": 1,
+      "field2": 2,
+      "field3": 3
+   },
+   "foo": [
+      1,
+      2,
+      3
+   ],
+   "obj": {
+      "foobar": 3
+   }
+}
+}
+}
+
+cleanupTests
+return
+
