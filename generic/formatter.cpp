@@ -49,6 +49,19 @@ static const AST *left_recursive(const AST *ast_)
     return left_recursive(const_cast<AST *>(ast_));
 }
 
+/** The transitive closure of left_recursive). */
+static AST *left_recursive_deep(AST *ast_)
+{
+    AST *last = ast_;
+    AST *left = left_recursive(ast_);
+
+    while (left != nullptr) {
+        last = left;
+        left = left_recursive(last);
+    }
+    return last;
+}
+
 /** Pretty-print fodder.
  *
  * \param fodder The fodder to print
@@ -471,6 +484,8 @@ class Unparser {
                 if (ast->value.c_str()[0] != U'\n')
                     o << ast->blockIndent;
                 for (const char32_t *cp = ast->value.c_str(); *cp != U'\0'; ++cp) {
+                    // Formatter always outputs in unix mode.
+                    if (*cp == '\r') continue;
                     std::string utf8;
                     encode_utf8(*cp, utf8);
                     o << utf8;
@@ -580,7 +595,7 @@ class Unparser {
 
         } else if (auto *ast = dynamic_cast<const Unary *>(ast_)) {
             o << uop_string(ast->op);
-            if (dynamic_cast<const Dollar *>(left_recursive(ast->expr))) {
+            if (dynamic_cast<const Dollar *>(left_recursive_deep(ast->expr))) {
                 unparse(ast->expr, true);
             } else {
                 unparse(ast->expr, false);
@@ -691,8 +706,8 @@ class EnforceMaximumBlankLines : public FmtPass {
     void fodderElement(FodderElement &f)
     {
         if (f.kind != FodderElement::INTERSTITIAL)
-            if (f.blanks > 2)
-                f.blanks = 2;
+            if (f.blanks > opts.maxBlankLines)
+                f.blanks = opts.maxBlankLines;
     }
 };
 
@@ -747,8 +762,7 @@ class StripAllButComments : public FmtPass {
 /** These cases are infix so we descend on the left to find the fodder. */
 static Fodder &open_fodder(AST *ast_)
 {
-    AST *left = left_recursive(ast_);
-    return left != nullptr ? open_fodder(left) : ast_->openFodder;
+    return left_recursive_deep(ast_)->openFodder;
 }
 
 /** Strip blank lines from the top of the file. */
@@ -913,6 +927,9 @@ class PrettyFieldNames : public FmtPass {
 
     bool isIdentifier(const UString &str)
     {
+        // Identifiers cannot be zero-length.
+        if (str.length() == 0) return false;
+
         bool first = true;
         for (char32_t c : str) {
             if (!first && c >= '0' && c <= '9')
@@ -1554,7 +1571,9 @@ class FixIndentation {
      */
     void expr(AST *ast_, const Indent &indent, bool space_before)
     {
-        fill(ast_->openFodder, space_before, !left_recursive(ast_), indent.lineUp);
+        bool separate_token = !left_recursive(ast_);
+
+        fill(ast_->openFodder, space_before, separate_token, indent.lineUp);
 
         if (auto *ast = dynamic_cast<Apply *>(ast_)) {
             const Fodder &init_fodder = open_fodder(ast->target);
@@ -1968,7 +1987,11 @@ class FixIndentation {
         } else if (auto *ast = dynamic_cast<Unary *>(ast_)) {
             column += uop_string(ast->op).length();
             Indent new_indent = newIndent(open_fodder(ast->expr), indent, column);
-            expr(ast->expr, new_indent, false);
+            if (dynamic_cast<const Dollar *>(left_recursive_deep(ast->expr))) {
+                expr(ast->expr, new_indent, true);
+            } else {
+                expr(ast->expr, new_indent, false);
+            }
 
         } else if (auto *ast = dynamic_cast<Var *>(ast_)) {
             column += ast->id->name.length();
