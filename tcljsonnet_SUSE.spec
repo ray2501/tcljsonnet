@@ -4,11 +4,11 @@
 
 Name:          tcljsonnet
 Summary:       Tcl wrapper for Jsonnet library
-Version:       0.9
-Release:       1
+Version:       0.10
+Release:       0
 License:       Apache License, Version 2.0
 Group:         Development/Libraries/Tcl
-Source:        tcljsonnet_0.9.zip
+Source:        %{name}-%{version}.tar.gz
 URL:           https://sites.google.com/site/ray2501/tcljsonnet
 BuildRequires: autoconf
 BuildRequires: automake
@@ -27,7 +27,7 @@ the structure, bringing the same benefit to structured data that
 templating languages bring to plain text.
 
 %prep
-%setup -q -n %{name}
+%setup -q -n %{name}-%{version}
 
 %build
 export CC=g++
