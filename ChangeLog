@@ -1,5 +1,6 @@
 2018-11-08  Danilo Chang  <ray2501@gmail.com>
 
+	* Update README.md for "fatal error C1047" issue
 	* win/makefile.vc: Update to correct version
 
 2018-07-23  Danilo Chang  <ray2501@gmail.com>
