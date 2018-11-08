@@ -62,6 +62,20 @@ to build 64bit version. First step is enter tcljsonnet win folder, then:
 	C:\src\tcljsonnet\win> nmake -f makefile.vc MACHINE=IA64
 	C:\src\tcljsonnet\win> nmake -f makefile.vc MACHINE=IA64 install	
 
+If you meet "fatal error C1047" issue, you need update rules.vc to compile 
+(I guess it is Visual C++ version compatible issue). You need change to 
+No Whole Program Optimization:
+
+	#!if [nmakehlp -c -GL]
+	#OPTIMIZATIONS  = $(OPTIMIZATIONS) -GL
+	#!endif
+
+and
+
+	#!if [nmakehlp -l -ltcg]
+	#LINKERFLAGS     =-ltcg
+	#!endif
+
 
 Implement commands
 =====
