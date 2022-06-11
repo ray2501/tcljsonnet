@@ -26,10 +26,24 @@ limitations under the License.
 #include "json.hpp"
 #include "md5.h"
 #include "parser.h"
+#include "ryml_std.hpp" // include this before any other ryml header
+#include "ryml.hpp"
 #include "state.h"
 #include "static_analysis.h"
 #include "string_utils.h"
 #include "vm.h"
+
+/** Macro that dumps an error and aborts the program regardless of
+ *  whether NDEBUG is defined. This should be used to mark codepaths
+ *  as unreachable.
+ */
+#define JSONNET_UNREACHABLE()                                      \
+  do {                                                             \
+    std::cerr << __FILE__ << ":" << __LINE__                       \
+              << ": INTERNAL ERROR: reached unreachable code path" \
+              << std::endl;                                        \
+    abort();                                                       \
+  } while (0)
 
 using json = nlohmann::json;
 
@@ -84,7 +98,7 @@ enum FrameKind {
  *
  * The stack frame is a bit like a tagged union, except not as memory
  * efficient.  The set of member variables that are actually used depends on
- * the value of the member varaible kind.
+ * the value of the member variable kind.
  *
  * If the stack frame is of kind FRAME_CALL, then it counts towards the
  * maximum number of stack frames allowed.  Other stack frames are not
@@ -329,7 +343,7 @@ class Stack {
      */
     virtual void dump(void)
     {
-        for (unsigned i = 0; i < stack.size(); ++i) {
+        for (std::size_t i = 0; i < stack.size(); ++i) {
             std::cout << "stack[" << i << "] = " << stack[i].location << " (" << stack[i].kind
                       << ")" << std::endl;
         }
@@ -918,6 +932,7 @@ class Interpreter {
         builtins["asciiUpper"] = &Interpreter::builtinAsciiUpper;
         builtins["join"] = &Interpreter::builtinJoin;
         builtins["parseJson"] = &Interpreter::builtinParseJson;
+        builtins["parseYaml"] = &Interpreter::builtinParseYaml;
         builtins["encodeUTF8"] = &Interpreter::builtinEncodeUTF8;
         builtins["decodeUTF8"] = &Interpreter::builtinDecodeUTF8;
 
@@ -955,7 +970,7 @@ class Interpreter {
                              const std::vector<Value> &args, const std::vector<Value::Type> params)
     {
         if (args.size() == params.size()) {
-            for (unsigned i = 0; i < args.size(); ++i) {
+            for (std::size_t i = 0; i < args.size(); ++i) {
                 if (args[i].t != params[i])
                     goto bad;
             }
@@ -1570,13 +1585,75 @@ class Interpreter {
 
         std::string value = encode_utf8(static_cast<HeapString *>(args[0].v.h)->value);
 
-        auto j = json::parse(value);
+        try {
+            auto j = json::parse(value);
+
+            bool filled;
+            otherJsonToHeap(j, filled, scratch);
+        } catch (const json::parse_error &e) {
+            throw makeError(loc, e.what());
+        }
+
+        return nullptr;
+    }
+
+    const AST *builtinParseYaml(const LocationRange &loc, const std::vector<Value> &args)
+    {
+        validateBuiltinArgs(loc, "parseYaml", args, {Value::STRING});
+
+        std::string value = encode_utf8(static_cast<HeapString *>(args[0].v.h)->value);
+
+        ryml::Tree tree = treeFromString(value);
+
+        json j;
+        if (tree.is_stream(tree.root_id())) {
+            // Split into individual yaml documents
+            std::stringstream ss;
+            ss << tree;
+            std::vector<std::string> v = split(ss.str(), "---\n");
+
+            // Convert yaml to json and push onto json array
+            ryml::Tree doc;
+            for (std::size_t i = 0; i < v.size(); ++i) {
+                if (!v[i].empty()) {
+                    doc = treeFromString(v[i]);
+                    j.push_back(yamlTreeToJson(doc));
+                }
+            }
+        } else {
+            j = yamlTreeToJson(tree);
+        }
 
         bool filled;
 
         otherJsonToHeap(j, filled, scratch);
 
         return nullptr;
+    }
+
+    const ryml::Tree treeFromString(const std::string& s) {
+        return ryml::parse(c4::to_csubstr(s));
+    }
+
+    const std::vector<std::string> split(const std::string& s, const std::string& delimiter) {
+        size_t pos_start = 0, pos_end, delim_len = delimiter.length();
+        std::string token;
+        std::vector<std::string> res;
+
+        while ((pos_end = s.find(delimiter, pos_start)) != std::string::npos) {
+            token = s.substr(pos_start, pos_end - pos_start);
+            pos_start = pos_end + delim_len;
+            res.push_back(token);
+        }
+
+        res.push_back(s.substr(pos_start));
+        return res;
+    }
+
+    const json yamlTreeToJson(const ryml::Tree& tree) {
+        std::ostringstream jsonStream;
+        jsonStream << ryml::as_json(tree);
+        return json::parse(jsonStream.str());
     }
 
     void otherJsonToHeap(const json &v, bool &filled, Value &attach) {
@@ -1820,7 +1897,7 @@ class Interpreter {
 
     /** Index an object's field.
      *
-     * \param loc Location where the e.f occured.
+     * \param loc Location where the e.f occurred.
      * \param obj The target
      * \param f The field
      */
@@ -2140,7 +2217,7 @@ class Interpreter {
                     std::vector<HeapThunk *> positional_args;
                     BindingFrame args;
                     bool got_named = false;
-                    for (unsigned i = 0; i < ast.args.size(); ++i) {
+                    for (std::size_t i = 0; i < ast.args.size(); ++i) {
                         const auto &arg = ast.args[i];
 
                         const Identifier *name;
@@ -2229,7 +2306,7 @@ class Interpreter {
 
                     if (func->body == nullptr) {
                         // Built-in function.
-                        // Give nullptr for self because noone looking at this frame will
+                        // Give nullptr for self because no one looking at this frame will
                         // attempt to bind to self (it's native code).
                         stack.newFrame(FRAME_BUILTIN_FORCE_THUNKS, f_ast);
                         stack.top().thunks = thunks_copy;
@@ -2381,7 +2458,7 @@ class Interpreter {
                                     func = sourceVals["__array_greater_or_equal"];
                                     break;
                                 default:
-                                    assert(false && "impossible case");
+                                    JSONNET_UNREACHABLE();
                                 }
                                 if (!func->filled) {
                                     stack.newCall(ast.location, func, func->self, func->offset, func->upValues);
@@ -2963,7 +3040,6 @@ class Interpreter {
                 case FRAME_STRING_CONCAT: {
                     const auto &ast = *static_cast<const Binary *>(f.ast);
                     const Value &lhs = stack.top().val;
-                    const Value &rhs = stack.top().val2;
                     UString output;
                     if (lhs.t == Value::STRING) {
                         output.append(static_cast<const HeapString *>(lhs.v.h)->value);
@@ -2971,6 +3047,7 @@ class Interpreter {
                         scratch = lhs;
                         output.append(toString(ast.left->location));
                     }
+                    const Value &rhs = stack.top().val2;
                     if (rhs.t == Value::STRING) {
                         output.append(static_cast<const HeapString *>(rhs.v.h)->value);
                     } else {

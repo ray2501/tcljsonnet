@@ -19,7 +19,7 @@ dnl	to configure the system for the local environment.
 # so that we create the export library with the dll.
 #-----------------------------------------------------------------------
 
-AC_INIT([jsonnet], [0.14])
+AC_INIT([jsonnet], [0.15])
 
 #--------------------------------------------------------------------
 # Call TEA_INIT as the first TEA_ macro to set up initial vars.
@@ -71,10 +71,12 @@ TEA_SETUP_COMPILER
 # and PKG_TCL_SOURCES.
 #-----------------------------------------------------------------------
 
-TEA_ADD_SOURCES([tcljsonnet.cpp generic/desugarer.cpp generic/lexer.cpp generic/formatter.cpp
-                  generic/libjsonnet.cpp generic/parser.cpp generic/pass.cpp 
-                  generic/static_analysis.cpp generic/string_utils.cpp generic/vm.cpp
-                  generic/md5.cpp])
+TEA_ADD_SOURCES([tcljsonnet.cpp desugarer.cpp lexer.cpp formatter.cpp
+                  libjsonnet.cpp parser.cpp pass.cpp static_analysis.cpp 
+                  string_utils.cpp vm.cpp md5.cpp 
+                  tree.cpp preprocess.cpp parse.cpp common.cpp time.cpp
+                  memory_util.cpp memory_resource.cpp language.cpp  format.cpp
+                  error.cpp char_traits.cpp base64.cpp])
 TEA_ADD_HEADERS([])
 TEA_ADD_INCLUDES([-I${srcdir}/generic])
 TEA_ADD_LIBS([-lm])
