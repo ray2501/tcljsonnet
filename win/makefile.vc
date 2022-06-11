@@ -2,7 +2,7 @@
 #
 # Microsoft Visual C++ makefile for use with nmake.exe v1.62+ (VC++ 5.0+)
 #
-# This makefile is based upon the Tcl 8.4 Makefile.vc and modified to 
+# This makefile is based upon the Tcl 8.4 Makefile.vc and modified to
 # make it suitable as a general package makefile. Look for the word EDIT
 # which marks sections that may need modification. As a minumum you will
 # need to change the PROJECT, DOTVERSION and DLLOBJS variables to values
@@ -10,7 +10,7 @@
 #
 # See the file "license.terms" for information on usage and redistribution
 # of this file, and for a DISCLAIMER OF ALL WARRANTIES.
-# 
+#
 # Copyright (c) 1995-1996 Sun Microsystems, Inc.
 # Copyright (c) 1998-2000 Ajuba Solutions.
 # Copyright (c) 2001 ActiveState Corporation.
@@ -102,7 +102,7 @@ the build instructions.
 #	TMP_DIR=<path>
 #	OUT_DIR=<path>
 #		Hooks to allow the intermediate and output directories to be
-#		changed.  $(OUT_DIR) is assumed to be 
+#		changed.  $(OUT_DIR) is assumed to be
 #		$(BINROOT)\(Release|Debug) based on if symbols are requested.
 #		$(TMP_DIR) will de $(OUT_DIR)\<buildtype> by default.
 #
@@ -164,7 +164,7 @@ PROJECT = jsonnet
 #PROJECT_REQUIRES_TK=1
 !include "rules.vc"
 
-DOTVERSION      = 0.10
+DOTVERSION      = 0.15
 VERSION         = $(DOTVERSION:.=)
 STUBPREFIX      = $(PROJECT)stub
 
@@ -180,6 +180,18 @@ DLLOBJS = \
 	$(TMP_DIR)\string_utils.obj \
 	$(TMP_DIR)\vm.obj \
 	$(TMP_DIR)\md5.obj \
+	$(TMP_DIR)\tree.obj \
+	$(TMP_DIR)\preprocess.obj \
+	$(TMP_DIR)\parse.obj \
+	$(TMP_DIR)\common.obj \
+	$(TMP_DIR)\time.obj \
+	$(TMP_DIR)\memory_util.obj \
+	$(TMP_DIR)\memory_resource.obj \
+	$(TMP_DIR)\language.obj \
+	$(TMP_DIR)\format.obj \
+	$(TMP_DIR)\error.obj \
+	$(TMP_DIR)\char_traits.obj \
+	$(TMP_DIR)\base64.obj \
 !if !$(STATIC_BUILD)
 	$(TMP_DIR)\tcljsonnet.res
 !endif
