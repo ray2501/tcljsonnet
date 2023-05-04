@@ -9,7 +9,7 @@ Release:       0
 License:       Apache-2.0
 Group:         Development/Libraries/Tcl
 Source:        %{name}-%{version}.tar.gz
-URL:           https://sites.google.com/site/ray2501/tcljsonnet
+URL:           https://github.com/ray2501/tcljsonnet
 BuildRequires: autoconf
 BuildRequires: automake
 BuildRequires: gcc-c++
