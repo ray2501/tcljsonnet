@@ -4,7 +4,7 @@
 
 Name:          tcljsonnet
 Summary:       Tcl wrapper for Jsonnet library
-Version:       0.15
+Version:       0.16
 Release:       0
 License:       Apache-2.0
 Group:         Development/Libraries/Tcl
