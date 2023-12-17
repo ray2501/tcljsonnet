@@ -25,6 +25,8 @@ limitations under the License.
 #include "pass.h"
 #include "string_utils.h"
 
+namespace jsonnet::internal {
+
 static const Fodder EF;  // Empty fodder.
 
 static const LocationRange E;  // Empty.
@@ -772,6 +774,12 @@ class Desugarer {
             desugar(file, obj_level);
             ast->file = dynamic_cast<LiteralString *>(file);
 
+        } else if (auto *ast = dynamic_cast<Importbin *>(ast_)) {
+            // TODO(dcunnin): Abstract this into a template function if it becomes more common.
+            AST *file = ast->file;
+            desugar(file, obj_level);
+            ast->file = dynamic_cast<LiteralString *>(file);
+
         } else if (auto *ast = dynamic_cast<InSuper *>(ast_)) {
             desugar(ast->element, obj_level);
 
@@ -1005,3 +1013,5 @@ void jsonnet_desugar(Allocator *alloc, AST *&ast, std::map<std::string, VmExt> *
     Desugarer desugarer(alloc);
     desugarer.desugarFile(ast, tlas);
 }
+
+}  // namespace jsonnet::internal

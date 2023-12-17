@@ -24,6 +24,8 @@ limitations under the License.
 #include "static_error.h"
 #include "unicode.h"
 
+namespace jsonnet::internal {
+
 static const std::vector<std::string> EMPTY;
 
 /** Is the char whitespace (excluding \n). */
@@ -190,6 +192,7 @@ static const std::map<std::string, Token::Kind> keywords = {
     {"if", Token::IF},
     {"import", Token::IMPORT},
     {"importstr", Token::IMPORTSTR},
+    {"importbin", Token::IMPORTBIN},
     {"in", Token::IN},
     {"local", Token::LOCAL},
     {"null", Token::NULL_LIT},
@@ -877,3 +880,5 @@ std::string jsonnet_unlex(const Tokens &tokens)
     }
     return ss.str();
 }
+
+}  // namespace jsonnet::internal

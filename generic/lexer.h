@@ -29,6 +29,8 @@ limitations under the License.
 #include "static_error.h"
 #include "unicode.h"
 
+namespace jsonnet::internal {
+
 /** Whitespace and comments.
  *
  * "Fodder" (as in cannon fodder) implies this data is expendable.
@@ -263,6 +265,7 @@ struct Token {
         IF,
         IMPORT,
         IMPORTSTR,
+        IMPORTBIN,
         IN,
         LOCAL,
         NULL_LIT,
@@ -346,6 +349,7 @@ struct Token {
             case IF: return "if";
             case IMPORT: return "import";
             case IMPORTSTR: return "importstr";
+            case IMPORTBIN: return "importbin";
             case IN: return "in";
             case LOCAL: return "local";
             case NULL_LIT: return "null";
@@ -403,5 +407,7 @@ Token::Kind lex_get_keyword_kind(const std::string &identifier);
 Tokens jsonnet_lex(const std::string &filename, const char *input);
 
 std::string jsonnet_unlex(const Tokens &tokens);
+
+}  // namespace jsonnet::internal
 
 #endif  // JSONNET_LEXER_H

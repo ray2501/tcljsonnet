@@ -20,6 +20,8 @@ limitations under the License.
 #include "static_analysis.h"
 #include "static_error.h"
 
+namespace jsonnet::internal {
+
 typedef std::set<const Identifier *> IdSet;
 
 /** Inserts all of s into r. */
@@ -108,6 +110,10 @@ static IdSet static_analysis(AST *ast_, bool in_object, const IdSet &vars)
     } break;
     case AST_IMPORTSTR: {
         assert(dynamic_cast<Importstr *>(ast_));
+        // Nothing to do.
+    } break;
+    case AST_IMPORTBIN: {
+        assert(dynamic_cast<Importbin *>(ast_));
         // Nothing to do.
     } break;
     case AST_IN_SUPER: {
@@ -222,3 +228,5 @@ void jsonnet_static_analysis(AST *ast)
 {
     static_analysis(ast, false, IdSet{});
 }
+
+}  // namespace jsonnet::internal

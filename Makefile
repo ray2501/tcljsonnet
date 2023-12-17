@@ -33,7 +33,7 @@
 # $(srcdir) or in the generic, win or unix subdirectory.
 #========================================================================
 
-PKG_SOURCES	=  tcljsonnet.cpp desugarer.cpp lexer.cpp formatter.cpp libjsonnet.cpp parser.cpp pass.cpp static_analysis.cpp string_utils.cpp vm.cpp md5.cpp tree.cpp preprocess.cpp parse.cpp common.cpp time.cpp memory_util.cpp memory_resource.cpp language.cpp format.cpp error.cpp char_traits.cpp base64.cpp
+PKG_SOURCES	=  tcljsonnet.cpp desugarer.cpp lexer.cpp formatter.cpp libjsonnet.cpp parser.cpp pass.cpp static_analysis.cpp string_utils.cpp vm.cpp md5.cpp rapidyaml/src/c4/yml/tree.cpp rapidyaml/src/c4/yml/preprocess.cpp rapidyaml/src/c4/yml/parse.cpp rapidyaml/src/c4/yml/common.cpp rapidyaml/ext/c4core/src/c4/time.cpp rapidyaml/ext/c4core/src/c4/memory_util.cpp rapidyaml/ext/c4core/src/c4/memory_resource.cpp rapidyaml/ext/c4core/src/c4/language.cpp rapidyaml/ext/c4core/src/c4/format.cpp rapidyaml/ext/c4core/src/c4/error.cpp rapidyaml/ext/c4core/src/c4/char_traits.cpp rapidyaml/ext/c4core/src/c4/base64.cpp
 PKG_OBJECTS	=  tcljsonnet.o desugarer.o lexer.o formatter.o libjsonnet.o parser.o pass.o static_analysis.o string_utils.o vm.o md5.o tree.o preprocess.o parse.o common.o time.o memory_util.o memory_resource.o language.o format.o error.o char_traits.o base64.o
 
 PKG_STUB_SOURCES = 
@@ -111,9 +111,9 @@ SHLIB_CFLAGS	= -fPIC
 SHLIB_LD	= ${CC} -shared ${CFLAGS} ${LDFLAGS_DEFAULT}
 SHLIB_LD_LIBS	= ${LIBS} -L/usr/lib64 -ltclstub8.6
 STLIB_LD	= ${AR} cr
-#TCL_DEFS	= -DPACKAGE_NAME=\"tcl\" -DPACKAGE_TARNAME=\"tcl\" -DPACKAGE_VERSION=\"8.6\" -DPACKAGE_STRING=\"tcl\ 8.6\" -DPACKAGE_BUGREPORT=\"\" -DPACKAGE_URL=\"\" -DSTDC_HEADERS=1 -DHAVE_SYS_TYPES_H=1 -DHAVE_SYS_STAT_H=1 -DHAVE_STDLIB_H=1 -DHAVE_STRING_H=1 -DHAVE_MEMORY_H=1 -DHAVE_STRINGS_H=1 -DHAVE_INTTYPES_H=1 -DHAVE_STDINT_H=1 -DHAVE_UNISTD_H=1 -DHAVE_SYS_PARAM_H=1 -DUSE_THREAD_ALLOC=1 -D_REENTRANT=1 -D_THREAD_SAFE=1 -DHAVE_PTHREAD_ATTR_SETSTACKSIZE=1 -DHAVE_PTHREAD_ATFORK=1 -DTCL_THREADS=1 -DTCL_CFGVAL_ENCODING=\"iso8859-1\" -DHAVE_ZLIB=1 -DMODULE_SCOPE=extern\ __attribute__\(\(__visibility__\(\"hidden\"\)\)\) -DHAVE_HIDDEN=1 -DHAVE_CAST_TO_UNION=1 -DTCL_SHLIB_EXT=\".so\" -DNDEBUG=1 -DTCL_CFG_OPTIMIZED=1 -DTCL_TOMMATH=1 -DMP_PREC=4 -D_LARGEFILE64_SOURCE=1 -DTCL_WIDE_INT_IS_LONG=1 -DHAVE_GETCWD=1 -DHAVE_MKSTEMP=1 -DHAVE_OPENDIR=1 -DHAVE_STRTOL=1 -DHAVE_WAITPID=1 -DHAVE_GETNAMEINFO=1 -DHAVE_GETADDRINFO=1 -DHAVE_FREEADDRINFO=1 -DHAVE_GAI_STRERROR=1 -DHAVE_STRUCT_ADDRINFO=1 -DHAVE_STRUCT_IN6_ADDR=1 -DHAVE_STRUCT_SOCKADDR_IN6=1 -DHAVE_STRUCT_SOCKADDR_STORAGE=1 -DHAVE_GETPWUID_R_5=1 -DHAVE_GETPWUID_R=1 -DHAVE_GETPWNAM_R_5=1 -DHAVE_GETPWNAM_R=1 -DHAVE_GETGRGID_R_5=1 -DHAVE_GETGRGID_R=1 -DHAVE_GETGRNAM_R_5=1 -DHAVE_GETGRNAM_R=1 -DHAVE_DECL_GETHOSTBYNAME_R=1 -DHAVE_GETHOSTBYNAME_R_6=1 -DHAVE_GETHOSTBYNAME_R=1 -DHAVE_DECL_GETHOSTBYADDR_R=1 -DHAVE_GETHOSTBYADDR_R_8=1 -DHAVE_GETHOSTBYADDR_R=1 -DHAVE_TERMIOS_H=1 -DHAVE_SYS_IOCTL_H=1 -DHAVE_SYS_TIME_H=1 -DTIME_WITH_SYS_TIME=1 -DHAVE_GMTIME_R=1 -DHAVE_LOCALTIME_R=1 -DHAVE_MKTIME=1 -DHAVE_TM_GMTOFF=1 -DHAVE_TIMEZONE_VAR=1 -DHAVE_STRUCT_STAT_ST_BLOCKS=1 -DHAVE_STRUCT_STAT_ST_BLKSIZE=1 -DHAVE_BLKCNT_T=1 -DHAVE_INTPTR_T=1 -DHAVE_UINTPTR_T=1 -DNO_UNION_WAIT=1 -DHAVE_SIGNED_CHAR=1 -DHAVE_LANGINFO=1 -DHAVE_MKSTEMPS=1 -DHAVE_FTS=1 -DHAVE_SYS_IOCTL_H=1 -DTCL_UNLOAD_DLLS=1 -DHAVE_CPUID=1
+#TCL_DEFS	= -DPACKAGE_NAME=\"tcl\" -DPACKAGE_TARNAME=\"tcl\" -DPACKAGE_VERSION=\"8.6\" -DPACKAGE_STRING=\"tcl\ 8.6\" -DPACKAGE_BUGREPORT=\"\" -DPACKAGE_URL=\"\" -DHAVE_STDIO_H=1 -DHAVE_STDLIB_H=1 -DHAVE_STRING_H=1 -DHAVE_INTTYPES_H=1 -DHAVE_STDINT_H=1 -DHAVE_STRINGS_H=1 -DHAVE_SYS_STAT_H=1 -DHAVE_SYS_TYPES_H=1 -DHAVE_UNISTD_H=1 -DHAVE_SYS_TIME_H=1 -DSTDC_HEADERS=1 -DHAVE_SYS_PARAM_H=1 -DUSE_THREAD_ALLOC=1 -D_REENTRANT=1 -D_THREAD_SAFE=1 -DHAVE_PTHREAD_ATTR_SETSTACKSIZE=1 -DHAVE_PTHREAD_ATFORK=1 -DTCL_THREADS=1 -DTCL_CFGVAL_ENCODING=\"iso8859-1\" -DHAVE_ZLIB=1 -DMODULE_SCOPE=extern\ __attribute__\(\(__visibility__\(\"hidden\"\)\)\) -DHAVE_HIDDEN=1 -DHAVE_CAST_TO_UNION=1 -DTCL_SHLIB_EXT=\".so\" -DNDEBUG=1 -DTCL_CFG_OPTIMIZED=1 -DTCL_TOMMATH=1 -DMP_PREC=4 -D_LARGEFILE64_SOURCE=1 -DTCL_WIDE_INT_IS_LONG=1 -DHAVE_GETCWD=1 -DHAVE_MKSTEMP=1 -DHAVE_OPENDIR=1 -DHAVE_STRTOL=1 -DHAVE_WAITPID=1 -DHAVE_GETNAMEINFO=1 -DHAVE_GETADDRINFO=1 -DHAVE_FREEADDRINFO=1 -DHAVE_GAI_STRERROR=1 -DHAVE_STRUCT_ADDRINFO=1 -DHAVE_STRUCT_IN6_ADDR=1 -DHAVE_STRUCT_SOCKADDR_IN6=1 -DHAVE_STRUCT_SOCKADDR_STORAGE=1 -DHAVE_GETPWUID_R_5=1 -DHAVE_GETPWUID_R=1 -DHAVE_GETPWNAM_R_5=1 -DHAVE_GETPWNAM_R=1 -DHAVE_GETGRGID_R_5=1 -DHAVE_GETGRGID_R=1 -DHAVE_GETGRNAM_R_5=1 -DHAVE_GETGRNAM_R=1 -DHAVE_DECL_GETHOSTBYNAME_R=1 -DHAVE_GETHOSTBYNAME_R_6=1 -DHAVE_GETHOSTBYNAME_R=1 -DHAVE_DECL_GETHOSTBYADDR_R=1 -DHAVE_GETHOSTBYADDR_R_8=1 -DHAVE_GETHOSTBYADDR_R=1 -DHAVE_TERMIOS_H=1 -DHAVE_SYS_IOCTL_H=1 -DHAVE_SYS_TIME_H=1 -DTIME_WITH_SYS_TIME=1 -DHAVE_GMTIME_R=1 -DHAVE_LOCALTIME_R=1 -DHAVE_MKTIME=1 -DHAVE_TM_GMTOFF=1 -DHAVE_TIMEZONE_VAR=1 -DHAVE_STRUCT_STAT_ST_BLOCKS=1 -DHAVE_STRUCT_STAT_ST_BLKSIZE=1 -DHAVE_BLKCNT_T=1 -DHAVE_INTPTR_T=1 -DHAVE_UINTPTR_T=1 -DNO_UNION_WAIT=1 -DHAVE_SIGNED_CHAR=1 -DHAVE_LANGINFO=1 -DHAVE_MKSTEMPS=1 -DHAVE_FTS=1 -DHAVE_SYS_IOCTL_H=1 -DTCL_UNLOAD_DLLS=1 -DHAVE_CPUID=1
 TCL_BIN_DIR	= /usr/lib64
-TCL_SRC_DIR	= /home/abuild/rpmbuild/BUILD/tcl8.6.12
+TCL_SRC_DIR	= /home/abuild/rpmbuild/BUILD/tcl8.6.13
 #TK_BIN_DIR	= @TK_BIN_DIR@
 #TK_SRC_DIR	= @TK_SRC_DIR@
 
@@ -144,18 +144,18 @@ TCLSH		= $(PKG_ENV) $(TCLSH_ENV) $(TCLSH_PROG)
 
 SHARED_BUILD	= 1
 
-INCLUDES	=  -I./generic -I"/usr/include"
-#INCLUDES	=  -I./generic -I"/usr/include" @TK_INCLUDES@ @TK_XINCLUDES@
+INCLUDES	=  -I./generic -I./generic/rapidyaml/src -I./generic/rapidyaml/ext/c4core/src -I"/usr/include"
+#INCLUDES	=  -I./generic -I./generic/rapidyaml/src -I./generic/rapidyaml/ext/c4core/src -I"/usr/include" @TK_INCLUDES@ @TK_XINCLUDES@
 
-PKG_CFLAGS	=  -pedantic -std=c++0x
+PKG_CFLAGS	=  -pedantic -std=c++17
 
 # TCL_DEFS is not strictly need here, but if you remove it, then you
 # must make sure that configure.ac checks for the necessary components
 # that your library may use.  TCL_DEFS can actually be a problem if
 # you do not compile with a similar machine setup as the Tcl core was
 # compiled with.
-#DEFS		= $(TCL_DEFS) -DPACKAGE_NAME=\"jsonnet\" -DPACKAGE_TARNAME=\"jsonnet\" -DPACKAGE_VERSION=\"0.15\" -DPACKAGE_STRING=\"jsonnet\ 0.15\" -DPACKAGE_BUGREPORT=\"\" -DPACKAGE_URL=\"\" -DBUILD_jsonnet=/\*\*/ -DSTDC_HEADERS=1 -DHAVE_SYS_TYPES_H=1 -DHAVE_SYS_STAT_H=1 -DHAVE_STDLIB_H=1 -DHAVE_STRING_H=1 -DHAVE_MEMORY_H=1 -DHAVE_STRINGS_H=1 -DHAVE_INTTYPES_H=1 -DHAVE_STDINT_H=1 -DHAVE_UNISTD_H=1 -DHAVE_LIMITS_H=1 -DHAVE_SYS_PARAM_H=1 -DUSE_THREAD_ALLOC=1 -D_REENTRANT=1 -D_THREAD_SAFE=1 -DTCL_THREADS=1 -DUSE_TCL_STUBS=1 -DUSE_TCLOO_STUBS=1 -DMODULE_SCOPE=extern\ __attribute__\(\(__visibility__\(\"hidden\"\)\)\) -DHAVE_HIDDEN=1 -DTCL_WIDE_INT_IS_LONG=1 $(PKG_CFLAGS)
-DEFS		= -DPACKAGE_NAME=\"jsonnet\" -DPACKAGE_TARNAME=\"jsonnet\" -DPACKAGE_VERSION=\"0.15\" -DPACKAGE_STRING=\"jsonnet\ 0.15\" -DPACKAGE_BUGREPORT=\"\" -DPACKAGE_URL=\"\" -DBUILD_jsonnet=/\*\*/ -DSTDC_HEADERS=1 -DHAVE_SYS_TYPES_H=1 -DHAVE_SYS_STAT_H=1 -DHAVE_STDLIB_H=1 -DHAVE_STRING_H=1 -DHAVE_MEMORY_H=1 -DHAVE_STRINGS_H=1 -DHAVE_INTTYPES_H=1 -DHAVE_STDINT_H=1 -DHAVE_UNISTD_H=1 -DHAVE_LIMITS_H=1 -DHAVE_SYS_PARAM_H=1 -DUSE_THREAD_ALLOC=1 -D_REENTRANT=1 -D_THREAD_SAFE=1 -DTCL_THREADS=1 -DUSE_TCL_STUBS=1 -DUSE_TCLOO_STUBS=1 -DMODULE_SCOPE=extern\ __attribute__\(\(__visibility__\(\"hidden\"\)\)\) -DHAVE_HIDDEN=1 -DTCL_WIDE_INT_IS_LONG=1 $(PKG_CFLAGS)
+#DEFS		= $(TCL_DEFS) -DPACKAGE_NAME=\"jsonnet\" -DPACKAGE_TARNAME=\"jsonnet\" -DPACKAGE_VERSION=\"0.15\" -DPACKAGE_STRING=\"jsonnet\ 0.15\" -DPACKAGE_BUGREPORT=\"\" -DPACKAGE_URL=\"\" -DBUILD_jsonnet=/\*\*/ -DHAVE_STDIO_H=1 -DHAVE_STDLIB_H=1 -DHAVE_STRING_H=1 -DHAVE_INTTYPES_H=1 -DHAVE_STDINT_H=1 -DHAVE_STRINGS_H=1 -DHAVE_SYS_STAT_H=1 -DHAVE_SYS_TYPES_H=1 -DHAVE_UNISTD_H=1 -DSTDC_HEADERS=1 -DHAVE_LIMITS_H=1 -DHAVE_SYS_PARAM_H=1 -DUSE_THREAD_ALLOC=1 -D_REENTRANT=1 -D_THREAD_SAFE=1 -DUSE_TCL_STUBS=1 -DUSE_TCLOO_STUBS=1 -DMODULE_SCOPE=extern\ __attribute__\(\(__visibility__\(\"hidden\"\)\)\) -DHAVE_HIDDEN=1 -DTCL_WIDE_INT_IS_LONG=1 $(PKG_CFLAGS)
+DEFS		= -DPACKAGE_NAME=\"jsonnet\" -DPACKAGE_TARNAME=\"jsonnet\" -DPACKAGE_VERSION=\"0.15\" -DPACKAGE_STRING=\"jsonnet\ 0.15\" -DPACKAGE_BUGREPORT=\"\" -DPACKAGE_URL=\"\" -DBUILD_jsonnet=/\*\*/ -DHAVE_STDIO_H=1 -DHAVE_STDLIB_H=1 -DHAVE_STRING_H=1 -DHAVE_INTTYPES_H=1 -DHAVE_STDINT_H=1 -DHAVE_STRINGS_H=1 -DHAVE_SYS_STAT_H=1 -DHAVE_SYS_TYPES_H=1 -DHAVE_UNISTD_H=1 -DSTDC_HEADERS=1 -DHAVE_LIMITS_H=1 -DHAVE_SYS_PARAM_H=1 -DUSE_THREAD_ALLOC=1 -D_REENTRANT=1 -D_THREAD_SAFE=1 -DUSE_TCL_STUBS=1 -DUSE_TCLOO_STUBS=1 -DMODULE_SCOPE=extern\ __attribute__\(\(__visibility__\(\"hidden\"\)\)\) -DHAVE_HIDDEN=1 -DTCL_WIDE_INT_IS_LONG=1 $(PKG_CFLAGS)
 
 # Move pkgIndex.tcl to 'BINARIES' var if it is generated in the Makefile
 CONFIG_CLEAN_FILES = Makefile pkgIndex.tcl
@@ -288,7 +288,7 @@ $(PKG_STUB_LIB_FILE): $(PKG_STUB_OBJECTS)
 # As necessary, add $(srcdir):$(srcdir)/compat:....
 #========================================================================
 
-VPATH = $(srcdir)/generic:$(srcdir)/unix:$(srcdir)/win:$(srcdir)/macosx
+VPATH = $(srcdir)/generic:$(srcdir)/generic/rapidyaml/src/c4/yml:$(srcdir)/generic/rapidyaml/ext/c4core/src/c4:$(srcdir)/unix:$(srcdir)/win:$(srcdir)/macosx
 
 .c.o:
 	$(COMPILE) -c `echo $<` -o $@

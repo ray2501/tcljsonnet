@@ -288,7 +288,7 @@ $(PKG_STUB_LIB_FILE): $(PKG_STUB_OBJECTS)
 # As necessary, add $(srcdir):$(srcdir)/compat:....
 #========================================================================
 
-VPATH = $(srcdir):$(srcdir)/generic:$(srcdir)/unix:$(srcdir)/win:$(srcdir)/macosx
+VPATH = $(srcdir):$(srcdir)/generic:$(srcdir)/generic/rapidyaml/src/c4/yml:$(srcdir)/generic/rapidyaml/ext/c4core/src/c4:$(srcdir)/unix:$(srcdir)/win:$(srcdir)/macosx
 
 .c.@OBJEXT@:
 	$(COMPILE) -c `@CYGPATH@ $<` -o $@

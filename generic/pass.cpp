@@ -16,6 +16,8 @@ limitations under the License.
 
 #include "pass.h"
 
+namespace jsonnet::internal {
+
 void CompilerPass::fodder(Fodder &fodder)
 {
     for (auto &f : fodder)
@@ -194,6 +196,11 @@ void CompilerPass::visit(Importstr *ast)
     visit(ast->file);
 }
 
+void CompilerPass::visit(Importbin *ast)
+{
+    visit(ast->file);
+}
+
 void CompilerPass::visit(InSuper *ast)
 {
     expr(ast->element);
@@ -307,6 +314,7 @@ void CompilerPass::visitExpr(AST *&ast_)
         VISIT(ast_, AST_FUNCTION, Function);
         VISIT(ast_, AST_IMPORT, Import);
         VISIT(ast_, AST_IMPORTSTR, Importstr);
+        VISIT(ast_, AST_IMPORTBIN, Importbin);
         VISIT(ast_, AST_INDEX, Index);
         VISIT(ast_, AST_IN_SUPER, InSuper);
         VISIT(ast_, AST_LITERAL_BOOLEAN, LiteralBoolean);
@@ -367,6 +375,7 @@ void ClonePass::expr(AST *&ast_)
         CLONE(ast_, AST_FUNCTION, Function);
         CLONE(ast_, AST_IMPORT, Import);
         CLONE(ast_, AST_IMPORTSTR, Importstr);
+        CLONE(ast_, AST_IMPORTBIN, Importbin);
         CLONE(ast_, AST_INDEX, Index);
         CLONE(ast_, AST_IN_SUPER, InSuper);
         CLONE(ast_, AST_LITERAL_BOOLEAN, LiteralBoolean);
@@ -397,3 +406,5 @@ AST *clone_ast(Allocator &alloc, AST *ast)
     ClonePass(alloc).expr(r);
     return r;
 }
+
+}  // namespace jsonnet::internal

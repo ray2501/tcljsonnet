@@ -31,6 +31,8 @@ limitations under the License.
 #include "parser.h"
 #include "static_error.h"
 
+namespace jsonnet::internal {
+
 std::string jsonnet_unparse_number(double v)
 {
     std::stringstream ss;
@@ -584,6 +586,7 @@ class Parser {
             case Token::IN:
             case Token::IMPORT:
             case Token::IMPORTSTR:
+            case Token::IMPORTBIN:
             case Token::LOCAL:
             case Token::PAREN_R:
             case Token::SEMICOLON:
@@ -860,6 +863,23 @@ class Parser {
                 }
             }
 
+            case Token::IMPORTBIN: {
+                pop();
+                AST *body = parse(MAX_PRECEDENCE);
+                if (body->type == AST_LITERAL_STRING) {
+                    auto *lit = static_cast<LiteralString *>(body);
+                    if (lit->tokenKind == LiteralString::BLOCK) {
+                        throw StaticError(lit->location,
+                                          "Cannot use text blocks in import statements.");
+                    }
+                    return alloc->make<Importbin>(span(begin, body), begin.fodder, lit);
+                } else {
+                    std::stringstream ss;
+                    ss << "computed imports are not allowed.";
+                    throw StaticError(body->location, ss.str());
+                }
+            }
+
             case Token::LOCAL: {
                 pop();
                 Local::Binds binds;
@@ -934,7 +954,7 @@ class Parser {
                     op_precedence = APPLY_PRECEDENCE;
                     break;
 
-                default: 
+                default:
                     // This happens when we reach EOF or the terminating token of an outer context.
                     return lhs;
             }
@@ -1111,3 +1131,5 @@ AST *jsonnet_parse(Allocator *alloc, Tokens &tokens)
 
     return expr;
 }
+
+}  // namespace jsonnet::internal
