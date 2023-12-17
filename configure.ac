@@ -27,7 +27,7 @@ AC_INIT([jsonnet], [0.15])
 # as well as PKG_LIB_FILE and PKG_STUB_LIB_FILE.
 #--------------------------------------------------------------------
 
-TEA_INIT([3.10])
+TEA_INIT()
 
 AC_CONFIG_AUX_DIR(tclconfig)
 
@@ -73,7 +73,7 @@ TEA_SETUP_COMPILER
 
 TEA_ADD_SOURCES([tcljsonnet.cpp
                   desugarer.cpp lexer.cpp formatter.cpp
-                  libjsonnet.cpp parser.cpp pass.cpp static_analysis.cpp 
+                  libjsonnet.cpp parser.cpp pass.cpp static_analysis.cpp
                   string_utils.cpp vm.cpp md5.cpp
                   rapidyaml/src/c4/yml/tree.cpp
                   rapidyaml/src/c4/yml/preprocess.cpp
@@ -88,7 +88,7 @@ TEA_ADD_SOURCES([tcljsonnet.cpp
                   rapidyaml/ext/c4core/src/c4/char_traits.cpp
                   rapidyaml/ext/c4core/src/c4/base64.cpp])
 TEA_ADD_HEADERS([])
-TEA_ADD_INCLUDES([-I${srcdir}/generic -I${srcdir}/generic/rapidyaml/src 
+TEA_ADD_INCLUDES([-I${srcdir}/generic -I${srcdir}/generic/rapidyaml/src
                   -I${srcdir}/generic/rapidyaml/ext/c4core/src])
 TEA_ADD_LIBS([-lm])
 TEA_ADD_CFLAGS([-pedantic -std=c++17])
@@ -184,9 +184,24 @@ TEA_PROG_TCLSH
 #TEA_PROG_WISH
 
 #--------------------------------------------------------------------
-# Finally, substitute all of the various values into the Makefile.
-# You may alternatively have a special pkgIndex.tcl.in or other files
-# which require substituting th AC variables in.  Include these here.
+# Setup a *Config.sh.in configuration file.
 #--------------------------------------------------------------------
 
-AC_OUTPUT([Makefile pkgIndex.tcl])
+#TEA_EXPORT_CONFIG([sample])
+#AC_SUBST(SAMPLE_VAR)
+
+#--------------------------------------------------------------------
+# Specify files to substitute AC variables in. You may alternatively
+# have a special pkgIndex.tcl.in or other files which require
+# substituting the AC variables in. Include these here.
+#--------------------------------------------------------------------
+
+AC_CONFIG_FILES([Makefile pkgIndex.tcl])
+#AC_CONFIG_FILES([sampleConfig.sh])
+
+#--------------------------------------------------------------------
+# Finally, substitute all of the various values into the files
+# specified with AC_CONFIG_FILES.
+#--------------------------------------------------------------------
+
+AC_OUTPUT
