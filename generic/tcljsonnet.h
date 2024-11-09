@@ -18,8 +18,8 @@ extern "C" {
 
 extern DLLEXPORT int	Jsonnet_Init(Tcl_Interp * interp);
 
-int  evaluateFile (ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *CONST obj[]);
-int  evaluateSnippet (ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *CONST obj[]);
+int  evaluateFile (ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const obj[]);
+int  evaluateSnippet (ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const obj[]);
 
 /*
  * end block for C++

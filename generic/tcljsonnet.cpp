@@ -32,10 +32,10 @@ extern "C" {
 #ifdef __cplusplus
 extern "C" {
 #endif
-int evaluateFile (ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *CONST obj[])
+int evaluateFile (ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const obj[])
 {
     char *file_path = NULL;
-    int path_len = 0;
+    Tcl_Size path_len = 0;
     int error;
     char *output;
     struct JsonnetVm *vm;
@@ -86,10 +86,10 @@ int evaluateFile (ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *
 }
 
 
-int evaluateSnippet (ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *CONST obj[])
+int evaluateSnippet (ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const obj[])
 {
     char *snippet_string = NULL;
-    int snippet_len = 0;
+    Tcl_Size snippet_len = 0;
     int error;
     char *output;
     struct JsonnetVm *vm;
@@ -136,17 +136,17 @@ int evaluateSnippet (ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Ob
 
 int Jsonnet_Init(Tcl_Interp *interp)
 {
-    if (Tcl_InitStubs(interp, "8.4", 0) == NULL) {
+    if (Tcl_InitStubs(interp, TCL_VERSION, 0) == NULL) {
 	return TCL_ERROR;
     }
     if (Tcl_PkgProvide(interp, PACKAGE_NAME, PACKAGE_VERSION) != TCL_OK) {
 	return TCL_ERROR;
     }
 
-    Tcl_CreateObjCommand(interp, "jsonnet::evaluateFile", (Tcl_ObjCmdProc *) evaluateFile,
+    Tcl_CreateObjCommand(interp, "::jsonnet::evaluateFile", (Tcl_ObjCmdProc *) evaluateFile,
 	   (ClientData)NULL, (Tcl_CmdDeleteProc *)NULL);
 
-    Tcl_CreateObjCommand(interp, "jsonnet::evaluateSnippet", (Tcl_ObjCmdProc *) evaluateSnippet,
+    Tcl_CreateObjCommand(interp, "::jsonnet::evaluateSnippet", (Tcl_ObjCmdProc *) evaluateSnippet,
        (ClientData)NULL, (Tcl_CmdDeleteProc *)NULL);
 
     return TCL_OK;
