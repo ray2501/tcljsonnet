@@ -44,8 +44,8 @@ below is an example:
 Implement commands
 =====
 
-jsonnet::evaluateFile - accepts a file name string.  
-jsonnet::evaluateSnippet - accepts a string to evaluate. 
+::jsonnet::evaluateFile - accepts a file name string.  
+::jsonnet::evaluateSnippet - accepts a string to evaluate.  
 
 
 Example
@@ -61,5 +61,5 @@ Example
         obj: { ["foo" + "bar"]: 3 },
     }}
 
-    jsonnet::evaluateSnippet $snippet
+    ::jsonnet::evaluateSnippet $snippet
 
