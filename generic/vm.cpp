@@ -21,17 +21,21 @@ limitations under the License.
 #include <set>
 #include <string>
 
+// charconv is because the RapidYAML 0.5.0 release has a bug in the single-header build.
+// https://github.com/biojppm/rapidyaml/issues/364#issuecomment-1536625415
+#include <charconv>
+
 #include "desugarer.h"
 #include "json.h"
 #include "json.hpp"
 #include "md5.h"
 #include "parser.h"
-#include "ryml_std.hpp" // include this before any other ryml header
-#include "ryml.hpp"
+#include "ryml_all.hpp"
 #include "state.h"
 #include "static_analysis.h"
 #include "string_utils.h"
 #include "vm.h"
+#include "path_utils.h"
 
 namespace jsonnet::internal {
 
@@ -50,17 +54,6 @@ namespace jsonnet::internal {
 using json = nlohmann::json;
 
 namespace {
-
-/** Turn a path e.g. "/a/b/c" into a dir, e.g. "/a/b/".  If there is no path returns "".
- */
-std::string dir_name(const std::string &path)
-{
-    size_t last_slash = path.rfind('/');
-    if (last_slash != std::string::npos) {
-        return path.substr(0, last_slash + 1);
-    }
-    return "";
-}
 
 /** Stack frames.
  *
@@ -745,7 +738,7 @@ class Interpreter {
 
         } else if (auto *obj = dynamic_cast<const HeapComprehensionObject *>(obj_)) {
             for (const auto &f : obj->compValues)
-                r[f.first] = ObjectField::VISIBLE;
+                r[f.first] = ObjectField::INHERIT;
         }
         return r;
     }
@@ -797,7 +790,11 @@ class Interpreter {
      */
     ImportCacheValue *importData(const LocationRange &loc, const LiteralString *file)
     {
-        std::string dir = dir_name(loc.file);
+        // `dir` is passed to the importCallback, which may be externally defined.
+        // For backwards compatibility, we need to keep the trailing directory separator.
+        // For example, the default callback in libjsonnet.cpp joins paths with simple
+        // string concatenation. Other (external) implementations might do the same.
+        std::string dir = path_dir_with_trailing_separator(loc.file);
 
         const UString &path = file->value;
 
@@ -940,6 +937,8 @@ class Interpreter {
         builtins["parseYaml"] = &Interpreter::builtinParseYaml;
         builtins["encodeUTF8"] = &Interpreter::builtinEncodeUTF8;
         builtins["decodeUTF8"] = &Interpreter::builtinDecodeUTF8;
+        builtins["atan2"] = &Interpreter::builtinAtan2;
+        builtins["hypot"] = &Interpreter::builtinHypot;
 
         DesugaredObject *stdlib = makeStdlibAST(alloc, "__internal__");
         jsonnet_static_analysis(stdlib);
@@ -1099,6 +1098,20 @@ class Interpreter {
     {
         validateBuiltinArgs(loc, "atan", args, {Value::NUMBER});
         scratch = makeNumberCheck(loc, std::atan(args[0].v.d));
+        return nullptr;
+    }
+
+    const AST *builtinAtan2(const LocationRange &loc, const std::vector<Value> &args)
+    {
+        validateBuiltinArgs(loc, "atan2", args, {Value::NUMBER, Value::NUMBER});
+        scratch = makeNumberCheck(loc, std::atan2(args[0].v.d, args[1].v.d));
+        return nullptr;
+    }
+
+    const AST *builtinHypot(const LocationRange &loc, const std::vector<Value> &args)
+    {
+        validateBuiltinArgs(loc, "hypot", args, {Value::NUMBER, Value::NUMBER});
+        scratch = makeNumberCheck(loc, std::hypot(args[0].v.d, args[1].v.d));
         return nullptr;
     }
 
@@ -1637,7 +1650,7 @@ class Interpreter {
     }
 
     const ryml::Tree treeFromString(const std::string& s) {
-        return ryml::parse(c4::to_csubstr(s));
+        return ryml::parse_in_arena(ryml::to_csubstr(s));
     }
 
     const std::vector<std::string> split(const std::string& s, const std::string& delimiter) {
@@ -1710,6 +1723,14 @@ class Interpreter {
             } break;
 
             case json::value_t::discarded: {
+                abort();
+            }
+
+            default: {
+                // Newer nlohmann json.hpp (from v3.8.0 https://github.com/nlohmann/json/pull/1662)
+                // add a `value_t::binary` type, used when dealing with some JSON-adjacent binary
+                // formats (BSON, CBOR, etc). Since it doesn't exist prior to v3.8.0 we can't match
+                // on it explicitly, but we can just treat any unknown type as an error.
                 abort();
             }
         }
@@ -2385,7 +2406,7 @@ class Interpreter {
                     stack.top().val2 = scratch;
                     stack.top().kind = FRAME_BINARY_OP;
                 }
-                // Falls through.
+                [[fallthrough]];
                 case FRAME_BINARY_OP: {
                     const auto &ast = *static_cast<const Binary *>(f.ast);
                     const Value &lhs = stack.top().val;
@@ -2538,36 +2559,45 @@ class Interpreter {
                                 case BOP_SHIFT_L: {
                                     if (rhs.v.d < 0)
                                         throw makeError(ast.location, "shift by negative exponent.");
-                                    int64_t long_l = lhs.v.d;
-                                    int64_t long_r = rhs.v.d;
+
+                                    int64_t long_l = safeDoubleToInt64(lhs.v.d, ast.location);
+                                    int64_t long_r = safeDoubleToInt64(rhs.v.d, ast.location);
                                     long_r = long_r % 64;
+
+                                    // Additional safety check for left shifts to prevent undefined behavior
+                                    if (long_r >= 1 && long_l >= (1LL << (63 - long_r))) {
+                                        throw makeError(ast.location,
+                                                      "numeric value outside safe integer range for bitwise operation.");
+                                    }
+
                                     scratch = makeNumber(long_l << long_r);
                                 } break;
 
                                 case BOP_SHIFT_R: {
                                     if (rhs.v.d < 0)
                                         throw makeError(ast.location, "shift by negative exponent.");
-                                    int64_t long_l = lhs.v.d;
-                                    int64_t long_r = rhs.v.d;
+
+                                    int64_t long_l = safeDoubleToInt64(lhs.v.d, ast.location);
+                                    int64_t long_r = safeDoubleToInt64(rhs.v.d, ast.location);
                                     long_r = long_r % 64;
                                     scratch = makeNumber(long_l >> long_r);
                                 } break;
 
                                 case BOP_BITWISE_AND: {
-                                    int64_t long_l = lhs.v.d;
-                                    int64_t long_r = rhs.v.d;
+                                    int64_t long_l = safeDoubleToInt64(lhs.v.d, ast.location);
+                                    int64_t long_r = safeDoubleToInt64(rhs.v.d, ast.location);
                                     scratch = makeNumber(long_l & long_r);
                                 } break;
 
                                 case BOP_BITWISE_XOR: {
-                                    int64_t long_l = lhs.v.d;
-                                    int64_t long_r = rhs.v.d;
+                                    int64_t long_l = safeDoubleToInt64(lhs.v.d, ast.location);
+                                    int64_t long_r = safeDoubleToInt64(rhs.v.d, ast.location);
                                     scratch = makeNumber(long_l ^ long_r);
                                 } break;
 
                                 case BOP_BITWISE_OR: {
-                                    int64_t long_l = lhs.v.d;
-                                    int64_t long_r = rhs.v.d;
+                                    int64_t long_l = safeDoubleToInt64(lhs.v.d, ast.location);
+                                    int64_t long_r = safeDoubleToInt64(rhs.v.d, ast.location);
                                     scratch = makeNumber(long_l | long_r);
                                 } break;
 
@@ -3383,6 +3413,23 @@ std::vector<std::string> jsonnet_vm_execute_stream(Allocator *alloc, const AST *
                    ctx);
     vm.evaluate(ast, 0);
     return vm.manifestStream(string_output);
+}
+
+inline int64_t safeDoubleToInt64(double value, const internal::LocationRange& loc) {
+    if (std::isnan(value) || std::isinf(value)) {
+        throw internal::StaticError(loc, "numeric value is not finite");
+    }
+
+    // Constants for safe double-to-int conversion
+    // Jsonnet uses IEEE 754 doubles, which precisely represent integers in the range [-2^53, 2^53].
+    constexpr int64_t DOUBLE_MAX_SAFE_INTEGER = 1LL << 53;
+    constexpr int64_t DOUBLE_MIN_SAFE_INTEGER = -(1LL << 53);
+
+    // Check if the value is within the safe integer range
+    if (value < DOUBLE_MIN_SAFE_INTEGER || value > DOUBLE_MAX_SAFE_INTEGER) {
+        throw internal::StaticError(loc, "numeric value outside safe integer range for bitwise operation.");
+    }
+    return static_cast<int64_t>(value);
 }
 
 }  // namespace jsonnet::internal

@@ -73,20 +73,9 @@ TEA_SETUP_COMPILER
 
 TEA_ADD_SOURCES([tcljsonnet.cpp
                   desugarer.cpp lexer.cpp formatter.cpp
-                  libjsonnet.cpp parser.cpp pass.cpp static_analysis.cpp
-                  string_utils.cpp vm.cpp md5.cpp
-                  rapidyaml/src/c4/yml/tree.cpp
-                  rapidyaml/src/c4/yml/preprocess.cpp
-                  rapidyaml/src/c4/yml/parse.cpp
-                  rapidyaml/src/c4/yml/common.cpp
-                  rapidyaml/ext/c4core/src/c4/time.cpp
-                  rapidyaml/ext/c4core/src/c4/memory_util.cpp
-                  rapidyaml/ext/c4core/src/c4/memory_resource.cpp
-                  rapidyaml/ext/c4core/src/c4/language.cpp
-                  rapidyaml/ext/c4core/src/c4/format.cpp
-                  rapidyaml/ext/c4core/src/c4/error.cpp
-                  rapidyaml/ext/c4core/src/c4/char_traits.cpp
-                  rapidyaml/ext/c4core/src/c4/base64.cpp])
+                  libjsonnet.cpp parser.cpp pass.cpp path_utils.cpp
+                  static_analysis.cpp string_utils.cpp vm.cpp md5.cpp
+                  rapidyaml.cpp])
 TEA_ADD_HEADERS([])
 TEA_ADD_INCLUDES([-I${srcdir}/generic -I${srcdir}/generic/rapidyaml/src
                   -I${srcdir}/generic/rapidyaml/ext/c4core/src])

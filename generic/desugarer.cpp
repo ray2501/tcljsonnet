@@ -36,7 +36,7 @@ struct BuiltinDecl {
     std::vector<UString> params;
 };
 
-static unsigned long max_builtin = 38;
+static unsigned long max_builtin = 40;
 BuiltinDecl jsonnet_builtin_decl(unsigned long builtin)
 {
     switch (builtin) {
@@ -79,6 +79,8 @@ BuiltinDecl jsonnet_builtin_decl(unsigned long builtin)
         case 36: return {U"parseYaml", {U"str"}};
         case 37: return {U"encodeUTF8", {U"str"}};
         case 38: return {U"decodeUTF8", {U"arr"}};
+        case 39: return {U"atan2", {U"y", U"x"}};
+        case 40: return {U"hypot", {U"a", U"b"}};
         default:
             std::cerr << "INTERNAL ERROR: Unrecognized builtin function: " << builtin << std::endl;
             std::abort();
@@ -100,6 +102,7 @@ static constexpr char STD_CODE[] = {
  */
 class Desugarer {
     Allocator *alloc;
+    bool isStdlib;
 
     template <class T, class... Args>
     T *make(Args &&... args)
@@ -119,12 +122,12 @@ class Desugarer {
 
     LiteralString *str(const UString &s)
     {
-        return make<LiteralString>(E, EF, s, LiteralString::DOUBLE, "", "");
+        return make<LiteralString>(E, EF, s, LiteralString::RAW_DESUGARED, "", "");
     }
 
     LiteralString *str(const LocationRange &loc, const UString &s)
     {
-        return make<LiteralString>(loc, EF, s, LiteralString::DOUBLE, "", "");
+        return make<LiteralString>(loc, EF, s, LiteralString::RAW_DESUGARED, "", "");
     }
 
     LiteralNull *null(void)
@@ -139,7 +142,10 @@ class Desugarer {
 
     Var *std(void)
     {
-        return var(id(U"std"));
+        // In most places, there is a "$std" variable inserted by
+        // the desugarer. On the standard library itself there isn't,
+        // so use "std" instead.
+        return var(id(isStdlib ? U"std" : U"$std"));
     }
 
     Local::Bind bind(const Identifier *id, AST *body)
@@ -219,7 +225,7 @@ class Desugarer {
     }
 
    public:
-    Desugarer(Allocator *alloc) : alloc(alloc) {}
+    Desugarer(Allocator *alloc, bool isStdlib = false) : alloc(alloc), isStdlib(isStdlib) {}
 
     void desugarParams(ArgParams &params, unsigned obj_level)
     {
@@ -728,7 +734,7 @@ class Desugarer {
                 } break;
 
                 case BOP_MANIFEST_UNEQUAL: invert = true;
-                /* fallthrough */
+                [[fallthrough]];
                 case BOP_MANIFEST_EQUAL: {
                     ast_ = equals(ast->location, ast->left, ast->right);
                     if (invert)
@@ -851,12 +857,13 @@ class Desugarer {
             // Nothing to do.
 
         } else if (auto *ast = dynamic_cast<LiteralString *>(ast_)) {
-            if ((ast->tokenKind != LiteralString::BLOCK) &&
+            if ((ast->tokenKind != LiteralString::RAW_DESUGARED) &&
+                (ast->tokenKind != LiteralString::BLOCK) &&
                 (ast->tokenKind != LiteralString::VERBATIM_DOUBLE) &&
                 (ast->tokenKind != LiteralString::VERBATIM_SINGLE)) {
                 ast->value = jsonnet_string_unescape(ast->location, ast->value);
             }
-            ast->tokenKind = LiteralString::DOUBLE;
+            ast->tokenKind = LiteralString::RAW_DESUGARED;
             ast->blockIndent.clear();
 
         } else if (dynamic_cast<const LiteralNull *>(ast_)) {
@@ -998,13 +1005,17 @@ class Desugarer {
                                               make<Var>(E, line_end, body)));
         }
 
-        // local std = (std.jsonnet stuff); ast
-        ast = make<Local>(ast->location, EF, singleBind(id(U"std"), std_obj), ast);
+        // local $std = (std.jsonnet stuff); std = $std; ast
+        // The standard library is bound to $std, which cannot be overriden,
+        // so redefining std won't break expressions that desugar to calls
+        // to standard library functions.
+        ast = make<Local>(ast->location, EF, singleBind(id(U"std"), std()), ast);
+        ast = make<Local>(ast->location, EF, singleBind(id(U"$std"), std_obj), ast);
     }
 };
 
 DesugaredObject *makeStdlibAST(Allocator *alloc, std::string filename) {
-    Desugarer desugarer(alloc);
+    Desugarer desugarer(alloc, true);
     return desugarer.stdlibAST(filename);
 }
 

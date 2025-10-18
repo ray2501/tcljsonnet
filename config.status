@@ -607,13 +607,9 @@ S["STUBS_BUILD"]="1"
 S["SHARED_BUILD"]="1"
 S["TCL_THREADS"]="1"
 S["TCL_INCLUDES"]="-I\"/usr/include\""
-S["PKG_OBJECTS"]=" tcljsonnet.o desugarer.o lexer.o formatter.o libjsonnet.o parser.o pass.o static_analysis.o string_utils.o vm.o md5.o tree.o preprocess.o parse.o c"\
-"ommon.o time.o memory_util.o memory_resource.o language.o format.o error.o char_traits.o base64.o"
-S["PKG_SOURCES"]=" tcljsonnet.cpp desugarer.cpp lexer.cpp formatter.cpp libjsonnet.cpp parser.cpp pass.cpp static_analysis.cpp string_utils.cpp vm.cpp md5.cpp rapidya"\
-"ml/src/c4/yml/tree.cpp rapidyaml/src/c4/yml/preprocess.cpp rapidyaml/src/c4/yml/parse.cpp rapidyaml/src/c4/yml/common.cpp rapidyaml/ext/c4core/src/c"\
-"4/time.cpp rapidyaml/ext/c4core/src/c4/memory_util.cpp rapidyaml/ext/c4core/src/c4/memory_resource.cpp rapidyaml/ext/c4core/src/c4/language.cpp rapi"\
-"dyaml/ext/c4core/src/c4/format.cpp rapidyaml/ext/c4core/src/c4/error.cpp rapidyaml/ext/c4core/src/c4/char_traits.cpp rapidyaml/ext/c4core/src/c4/bas"\
-"e64.cpp"
+S["PKG_OBJECTS"]=" tcljsonnet.o desugarer.o lexer.o formatter.o libjsonnet.o parser.o pass.o path_utils.o static_analysis.o string_utils.o vm.o md5.o rapidyaml.o"
+S["PKG_SOURCES"]=" tcljsonnet.cpp desugarer.cpp lexer.cpp formatter.cpp libjsonnet.cpp parser.cpp pass.cpp path_utils.cpp static_analysis.cpp string_utils.cpp vm.cpp "\
+"md5.cpp rapidyaml.cpp"
 S["RANLIB"]=":"
 S["SET_MAKE"]=""
 S["CPP"]="g++ -E"
@@ -649,9 +645,9 @@ S["TCL_STUB_LIB_FILE"]="libtclstub8.6.a"
 S["TCL_LIB_SPEC"]="-L/usr/lib64 -ltcl8.6"
 S["TCL_LIB_FLAG"]="-ltcl8.6"
 S["TCL_LIB_FILE"]="libtcl8.6.so"
-S["TCL_SRC_DIR"]="/home/abuild/rpmbuild/BUILD/tcl8.6.15"
+S["TCL_SRC_DIR"]="/home/abuild/rpmbuild/BUILD/tcl-8.6.16-build/tcl8.6.16"
 S["TCL_BIN_DIR"]="/usr/lib64"
-S["TCL_PATCH_LEVEL"]=".15"
+S["TCL_PATCH_LEVEL"]=".16"
 S["TCL_VERSION"]="8.6"
 S["INSTALL_LIBRARY"]="${INSTALL} -m 644"
 S["INSTALL_SCRIPT"]="${INSTALL} -m 755"

@@ -1,5 +1,5 @@
 /*
-Copyright 2015 Google Inc. All rights reserved.
+Copyright 2024 Google Inc. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -14,30 +14,21 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-#ifndef JSONNET_PARSER_H
-#define JSONNET_PARSER_H
+#ifndef JSONNET_PATH_UTILS_H
+#define JSONNET_PATH_UTILS_H
 
 #include <string>
 
-#include "ast.h"
-#include "lexer.h"
-#include "unicode.h"
-
 namespace jsonnet::internal {
 
-/** Parse a given JSON++ string.
+/** Get everything except the filename from a path. If the path is just a filename, returns "".
  *
- * \param alloc Used to allocate the AST nodes.  The Allocator must outlive the
- * AST pointer returned.
- * \param tokens The list of tokens (all tokens are popped except EOF).
- * \returns The parsed abstract syntax tree.
+ * The result includes the trailing directory separator (if there is one in the input).
+ * Exact behaviour is platform-specific (different platforms use different directory separators).
  */
-AST *jsonnet_parse(Allocator *alloc, Tokens &tokens);
-
-/** Outputs a number, trying to preserve precision as well as possible.
- */
-std::string jsonnet_unparse_number(double v);
+std::string path_dir_with_trailing_separator(const std::string &path);
 
 }  // namespace jsonnet::internal
 
-#endif  // JSONNET_PARSER_H
+#endif
+

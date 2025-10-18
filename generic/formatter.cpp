@@ -490,6 +490,7 @@ class Unparser {
             o << ast->originalString;
 
         } else if (auto *ast = dynamic_cast<const LiteralString *>(ast_)) {
+            assert(ast->tokenKind != LiteralString::RAW_DESUGARED);
             if (ast->tokenKind == LiteralString::DOUBLE) {
                 o << "\"";
                 o << encode_utf8(ast->value);
@@ -499,7 +500,11 @@ class Unparser {
                 o << encode_utf8(ast->value);
                 o << "'";
             } else if (ast->tokenKind == LiteralString::BLOCK) {
-                o << "|||\n";
+                o << "|||";
+                if (ast->value.back() != U'\n') {
+                    o << "-";
+                }
+                o << "\n";
                 if (ast->value.c_str()[0] != U'\n')
                     o << ast->blockIndent;
                 for (const char32_t *cp = ast->value.c_str(); *cp != U'\0'; ++cp) {
@@ -511,6 +516,9 @@ class Unparser {
                     if (*cp == U'\n' && *(cp + 1) != U'\n' && *(cp + 1) != U'\0') {
                         o << ast->blockIndent;
                     }
+                }
+                if (ast->value.back() != U'\n') {
+                    o << "\n";
                 }
                 o << ast->blockTermIndent << "|||";
             } else if (ast->tokenKind == LiteralString::VERBATIM_DOUBLE) {
@@ -647,6 +655,7 @@ class EnforceStringStyle : public FmtPass {
     EnforceStringStyle(Allocator &alloc, const FmtOpts &opts) : FmtPass(alloc, opts) {}
     void visit(LiteralString *lit)
     {
+        assert(lit->tokenKind != LiteralString::RAW_DESUGARED);
         if (lit->tokenKind == LiteralString::BLOCK)
             return;
         if (lit->tokenKind == LiteralString::VERBATIM_DOUBLE)
@@ -1881,6 +1890,7 @@ class FixIndentation {
             column += ast->originalString.length();
 
         } else if (auto *ast = dynamic_cast<LiteralString *>(ast_)) {
+            assert(ast->tokenKind != LiteralString::RAW_DESUGARED);
             if (ast->tokenKind == LiteralString::DOUBLE) {
                 column += 2 + ast->value.length();  // Include quotes
             } else if (ast->tokenKind == LiteralString::SINGLE) {
