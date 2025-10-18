@@ -1,5 +1,6 @@
 2025-10-18  Danilo Chang  <ray2501@gmail.com>
 
+	* Setup version to v0.18
 	* Update Jsonnet source code to v0.21.0
 
 2025-01-30  Danilo Chang  <ray2501@gmail.com>
