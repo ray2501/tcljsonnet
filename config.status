@@ -614,7 +614,7 @@ S["RANLIB"]=":"
 S["SET_MAKE"]=""
 S["CPP"]="g++ -E"
 S["TCL_SHLIB_LD_LIBS"]="${LIBS}"
-S["TCL_LD_FLAGS"]="-flto=auto -ffat-lto-objects -Wl,--export-dynamic "
+S["TCL_LD_FLAGS"]=" -flto=auto -ffat-lto-objects -Wl,--export-dynamic "
 S["TCL_EXTRA_CFLAGS"]="-O2 -Wall -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3 -fstack-protector-strong -funwind-tables -fasynchronous-unwind-tables -fstack-clash-protection -Werr"\
 "or=return-type -flto=auto -ffat-lto-objects -g -pipe "
 S["TCL_DEFS"]="-DPACKAGE_NAME=\\\"tcl\\\" -DPACKAGE_TARNAME=\\\"tcl\\\" -DPACKAGE_VERSION=\\\"8.6\\\" -DPACKAGE_STRING=\\\"tcl\\ 8.6\\\" -DPACKAGE_BUGREPORT=\\\"\\\" -DPACKAGE_URL=\\\"\\\""\

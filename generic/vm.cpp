@@ -16,26 +16,31 @@ limitations under the License.
 
 #include <cassert>
 #include <cmath>
+#include <cstdlib>
 
 #include <memory>
 #include <set>
 #include <string>
+#include <string_view>
 
-// charconv is because the RapidYAML 0.5.0 release has a bug in the single-header build.
-// https://github.com/biojppm/rapidyaml/issues/364#issuecomment-1536625415
-#include <charconv>
-
+#include "ast.h"
 #include "desugarer.h"
 #include "json.h"
 #include "json.hpp"
 #include "md5.h"
 #include "parser.h"
-#include "ryml_all.hpp"
+#ifdef USE_SYSTEM_RAPIDYAML
+#include <ryml.hpp>
+#else
+#include "rapidyaml-0.10.0.hpp"
+#endif
 #include "state.h"
 #include "static_analysis.h"
+#include "static_error.h"
 #include "string_utils.h"
 #include "vm.h"
 #include "path_utils.h"
+#include "unicode.h"
 
 namespace jsonnet::internal {
 
@@ -54,6 +59,15 @@ namespace jsonnet::internal {
 using json = nlohmann::json;
 
 namespace {
+
+// Custom exception type thrown by RapidYAML error handling callback.
+// Should be caught and converted to a runtime error.
+struct RapidYamlError {
+    // Construct any way that std::string can be constructed.
+    template <typename... Args>
+    explicit RapidYamlError(Args&&... args): msg_(std::forward<Args>(args)...) {}
+    std::string msg_;
+};
 
 /** Stack frames.
  *
@@ -181,6 +195,7 @@ struct Frame {
           location(ast->location),
           tailCall(false),
           elementId(0),
+          first(false),
           context(NULL),
           self(NULL),
           offset(0)
@@ -195,6 +210,7 @@ struct Frame {
           location(location),
           tailCall(false),
           elementId(0),
+          first(false),
           context(NULL),
           self(NULL),
           offset(0)
@@ -324,7 +340,7 @@ class Stack {
             }
         } else {
             const auto *func = static_cast<const HeapClosure *>(e);
-            if (func->body == nullptr) {
+            if (func->isBuiltin()) {
                 return "builtin function <" + func->builtinName + ">";
             }
             return "function <" + name + ">";
@@ -637,21 +653,15 @@ class Interpreter {
         return r;
     }
 
-    Value makeNativeBuiltin(const std::string &name, const std::vector<std::string> &params)
+    Value makeBuiltinFromAST(const BuiltinFunctionBody *body)
     {
         HeapClosure::Params hc_params;
-        for (const auto &p : params) {
-            hc_params.emplace_back(alloc->makeIdentifier(decode_utf8(p)), nullptr);
+        for (const auto p : body->params) {
+            hc_params.emplace_back(p, nullptr);
         }
-        return makeBuiltin(name, hc_params);
-    }
-
-    Value makeBuiltin(const std::string &name, const HeapClosure::Params &params)
-    {
-        AST *body = nullptr;
         Value r;
         r.t = Value::FUNCTION;
-        r.v.h = makeHeap<HeapClosure>(BindingFrame(), nullptr, 0, params, body, name);
+        r.v.h = makeHeap<HeapClosure>(BindingFrame(), nullptr, 0, hc_params, body, body->name);
         return r;
     }
 
@@ -692,6 +702,16 @@ class Interpreter {
             auto *l = findObject(f, ext->left, start_from, counter);
             if (l)
                 return l;
+        } else if (auto *ext = dynamic_cast<HeapRestrictedObject *>(curr)) {
+            // The RestrictedObject is on the 'right', that is it is checked/counted first.
+            if (counter >= start_from) {
+                if (ext->retainedKeys.find(f) == ext->retainedKeys.end()) {
+                    counter += 1 + countLeaves(ext->obj);
+                    return nullptr;
+                }
+            }
+            ++counter;
+            return findObject(f, ext->obj, start_from, counter);
         } else {
             if (counter >= start_from) {
                 if (auto *simp = dynamic_cast<HeapSimpleObject *>(curr)) {
@@ -722,6 +742,9 @@ class Interpreter {
             for (const auto &f : obj->fields) {
                 r[f.first] = f.second.hide;
             }
+
+        } else if (auto *obj = dynamic_cast<const HeapRestrictedObject *>(obj_)) {
+            return obj->retainedKeys;
 
         } else if (auto *obj = dynamic_cast<const HeapExtendedObject *>(obj_)) {
             r = objectFieldsAux(obj->right);
@@ -852,6 +875,8 @@ class Interpreter {
     {
         if (auto *ext = dynamic_cast<HeapExtendedObject *>(obj)) {
             return countLeaves(ext->left) + countLeaves(ext->right);
+        } else if (auto *ext = dynamic_cast<HeapRestrictedObject *>(obj)) {
+            return countLeaves(ext->obj) + 1;
         } else {
             // Must be a HeapLeafObject.
             return 1;
@@ -871,6 +896,40 @@ class Interpreter {
             auto *th = makeHeap<HeapThunk>(sourceFuncIds.back().get(), stdObject, 0, field.body);
             sourceVals[encode_utf8(name)] = th;
         }
+    }
+
+    /** Safely converts a double to an int64_t, with range and validity checks.
+    *
+    * This function is used primarily for bitwise operations which require integer operands.
+    * It performs two safety checks:
+    * 1. Verifies the value is finite (not NaN or Infinity)
+    * 2. Ensures the value is within the safe integer range [-2^53, 2^53]
+    *
+    * The safe integer range limitation is necessary because IEEE 754 double precision
+    * floating point numbers can only precisely represent integers in the range [-2^53, 2^53].
+    * Beyond this range, precision is lost, which would lead to unpredictable results
+    * in bitwise operations that depend on exact bit patterns.
+    *
+    * \param value The double value to convert
+    * \param loc The location in source code (for error reporting)
+    * \throws RuntimeError if value is not finite or outside the safe integer range
+    * \returns The value converted to int64_t
+    */
+    int64_t safeDoubleToInt64(double value, const internal::LocationRange& loc) {
+        if (std::isnan(value) || std::isinf(value)) {
+            throw internal::StaticError(loc, "numeric value is not finite");
+        }
+
+        // Constants for safe double-to-int conversion
+        // Jsonnet uses IEEE 754 doubles, which precisely represent integers in the range [-2^53 + 1, 2^53 - 1].
+        constexpr int64_t DOUBLE_MAX_SAFE_INTEGER = (1LL << 53) - 1;
+        constexpr int64_t DOUBLE_MIN_SAFE_INTEGER = -((1LL << 53) - 1);
+
+        // Check if the value is within the safe integer range
+        if (value < DOUBLE_MIN_SAFE_INTEGER || value > DOUBLE_MAX_SAFE_INTEGER) {
+            throw makeError(loc, "numeric value outside safe integer range for bitwise operation.");
+        }
+        return static_cast<int64_t>(value);
     }
 
    public:
@@ -893,52 +952,60 @@ class Interpreter {
           idEmpty(alloc->makeIdentifier(U"")),
           jsonObjVar(alloc->make<Var>(LocationRange(), Fodder{}, idJsonObjVar)),
           externalVars(ext_vars),
-          nativeCallbacks(native_callbacks),
           importCallback(import_callback),
           importCallbackContext(import_callback_context)
     {
         scratch = makeNull();
-        builtins["makeArray"] = &Interpreter::builtinMakeArray;
-        builtins["pow"] = &Interpreter::builtinPow;
-        builtins["floor"] = &Interpreter::builtinFloor;
-        builtins["ceil"] = &Interpreter::builtinCeil;
-        builtins["sqrt"] = &Interpreter::builtinSqrt;
-        builtins["sin"] = &Interpreter::builtinSin;
-        builtins["cos"] = &Interpreter::builtinCos;
-        builtins["tan"] = &Interpreter::builtinTan;
-        builtins["asin"] = &Interpreter::builtinAsin;
-        builtins["acos"] = &Interpreter::builtinAcos;
-        builtins["atan"] = &Interpreter::builtinAtan;
-        builtins["type"] = &Interpreter::builtinType;
-        builtins["filter"] = &Interpreter::builtinFilter;
-        builtins["objectHasEx"] = &Interpreter::builtinObjectHasEx;
-        builtins["length"] = &Interpreter::builtinLength;
-        builtins["objectFieldsEx"] = &Interpreter::builtinObjectFieldsEx;
-        builtins["codepoint"] = &Interpreter::builtinCodepoint;
-        builtins["char"] = &Interpreter::builtinChar;
-        builtins["log"] = &Interpreter::builtinLog;
-        builtins["exp"] = &Interpreter::builtinExp;
-        builtins["mantissa"] = &Interpreter::builtinMantissa;
-        builtins["exponent"] = &Interpreter::builtinExponent;
-        builtins["modulo"] = &Interpreter::builtinModulo;
-        builtins["extVar"] = &Interpreter::builtinExtVar;
-        builtins["primitiveEquals"] = &Interpreter::builtinPrimitiveEquals;
-        builtins["native"] = &Interpreter::builtinNative;
-        builtins["md5"] = &Interpreter::builtinMd5;
-        builtins["trace"] = &Interpreter::builtinTrace;
-        builtins["splitLimit"] = &Interpreter::builtinSplitLimit;
-        builtins["substr"] = &Interpreter::builtinSubstr;
-        builtins["range"] = &Interpreter::builtinRange;
-        builtins["strReplace"] = &Interpreter::builtinStrReplace;
-        builtins["asciiLower"] = &Interpreter::builtinAsciiLower;
-        builtins["asciiUpper"] = &Interpreter::builtinAsciiUpper;
-        builtins["join"] = &Interpreter::builtinJoin;
-        builtins["parseJson"] = &Interpreter::builtinParseJson;
-        builtins["parseYaml"] = &Interpreter::builtinParseYaml;
-        builtins["encodeUTF8"] = &Interpreter::builtinEncodeUTF8;
-        builtins["decodeUTF8"] = &Interpreter::builtinDecodeUTF8;
-        builtins["atan2"] = &Interpreter::builtinAtan2;
-        builtins["hypot"] = &Interpreter::builtinHypot;
+        // Add a prefix to avoid conflicting with names from `native_callbacks`.
+        builtins["std:makeArray"] = &Interpreter::builtinMakeArray;
+        builtins["std:pow"] = &Interpreter::builtinPow;
+        builtins["std:floor"] = &Interpreter::builtinFloor;
+        builtins["std:ceil"] = &Interpreter::builtinCeil;
+        builtins["std:sqrt"] = &Interpreter::builtinSqrt;
+        builtins["std:sin"] = &Interpreter::builtinSin;
+        builtins["std:cos"] = &Interpreter::builtinCos;
+        builtins["std:tan"] = &Interpreter::builtinTan;
+        builtins["std:asin"] = &Interpreter::builtinAsin;
+        builtins["std:acos"] = &Interpreter::builtinAcos;
+        builtins["std:atan"] = &Interpreter::builtinAtan;
+        builtins["std:type"] = &Interpreter::builtinType;
+        builtins["std:filter"] = &Interpreter::builtinFilter;
+        builtins["std:objectHasEx"] = &Interpreter::builtinObjectHasEx;
+        builtins["std:length"] = &Interpreter::builtinLength;
+        builtins["std:objectFieldsEx"] = &Interpreter::builtinObjectFieldsEx;
+        builtins["std:objectRemoveKey"] = &Interpreter::builtinObjectRemoveKey;
+        builtins["std:codepoint"] = &Interpreter::builtinCodepoint;
+        builtins["std:char"] = &Interpreter::builtinChar;
+        builtins["std:log"] = &Interpreter::builtinLog;
+        builtins["std:exp"] = &Interpreter::builtinExp;
+        builtins["std:mantissa"] = &Interpreter::builtinMantissa;
+        builtins["std:exponent"] = &Interpreter::builtinExponent;
+        builtins["std:modulo"] = &Interpreter::builtinModulo;
+        builtins["std:extVar"] = &Interpreter::builtinExtVar;
+        builtins["std:primitiveEquals"] = &Interpreter::builtinPrimitiveEquals;
+        builtins["std:native"] = &Interpreter::builtinNative;
+        builtins["std:md5"] = &Interpreter::builtinMd5;
+        builtins["std:trace"] = &Interpreter::builtinTrace;
+        builtins["std:splitLimit"] = &Interpreter::builtinSplitLimit;
+        builtins["std:substr"] = &Interpreter::builtinSubstr;
+        builtins["std:range"] = &Interpreter::builtinRange;
+        builtins["std:strReplace"] = &Interpreter::builtinStrReplace;
+        builtins["std:asciiLower"] = &Interpreter::builtinAsciiLower;
+        builtins["std:asciiUpper"] = &Interpreter::builtinAsciiUpper;
+        builtins["std:join"] = &Interpreter::builtinJoin;
+        builtins["std:parseJson"] = &Interpreter::builtinParseJson;
+        builtins["std:parseYaml"] = &Interpreter::builtinParseYaml;
+        builtins["std:encodeUTF8"] = &Interpreter::builtinEncodeUTF8;
+        builtins["std:decodeUTF8"] = &Interpreter::builtinDecodeUTF8;
+        builtins["std:atan2"] = &Interpreter::builtinAtan2;
+        builtins["std:hypot"] = &Interpreter::builtinHypot;
+
+        // Add a prefix `native:` to names of provided callbacks to ensure they can't clash with the builtins above.
+        // Although we have separate lookup tables for them, the HeapClosure and BuiltinFunctionBody types just hold
+        // function "name" as a std::string to identify the function.
+        for (const auto& [name, cb] : native_callbacks) {
+            nativeCallbacks.emplace("native:" + name, cb);
+        }
 
         DesugaredObject *stdlib = makeStdlibAST(alloc, "__internal__");
         jsonnet_static_analysis(stdlib);
@@ -1233,6 +1300,22 @@ class Interpreter {
         return nullptr;
     }
 
+    const AST *builtinObjectRemoveKey(const LocationRange &loc, const std::vector<Value> &args)
+    {
+        validateBuiltinArgs(loc, "objectRemoveKey", args, {Value::OBJECT, Value::STRING});
+        auto *obj = static_cast<HeapObject *>(args[0].v.h);
+        const auto *key = static_cast<HeapString *>(args[1].v.h);
+        const auto *key_id = alloc->makeIdentifier(key->value);
+        auto fields = objectFieldsAux(obj);
+        const auto it = fields.find(key_id);
+        if (it != fields.end()) {
+            fields.erase(it);
+        }
+        // TODO: If the key isn't found perhaps we can evaluate to the existing `obj`?
+        scratch = makeObject<HeapRestrictedObject>(obj, fields);
+        return nullptr;
+    }
+
     const AST *builtinCodepoint(const LocationRange &loc, const std::vector<Value> &args)
     {
         validateBuiltinArgs(loc, "codepoint", args, {Value::STRING});
@@ -1374,14 +1457,24 @@ class Interpreter {
     {
         validateBuiltinArgs(loc, "native", args, {Value::STRING});
 
-        std::string builtin_name = encode_utf8(static_cast<HeapString *>(args[0].v.h)->value);
+        // Add a prefix to avoid conflicting with any name in `std`.
+        std::string builtin_name = "native:" + encode_utf8(static_cast<HeapString *>(args[0].v.h)->value);
 
         VmNativeCallbackMap::const_iterator nit = nativeCallbacks.find(builtin_name);
         if (nit == nativeCallbacks.end()) {
             scratch = makeNull();
         } else {
             const VmNativeCallback &cb = nit->second;
-            scratch = makeNativeBuiltin(builtin_name, cb.params);
+            const auto &params = cb.params;
+            const auto body = alloc->makeBuiltinBody(LocationRange{}, builtin_name,
+                [this, &params]()->Identifiers {
+                    Identifiers ids;
+                    for (const auto &name : params) {
+                        ids.emplace_back(this->alloc->makeIdentifier(decode_utf8(name)));
+                    }
+                    return ids;
+                });
+            scratch = makeBuiltinFromAST(body);
         }
         return nullptr;
     }
@@ -1618,39 +1711,35 @@ class Interpreter {
     const AST *builtinParseYaml(const LocationRange &loc, const std::vector<Value> &args)
     {
         validateBuiltinArgs(loc, "parseYaml", args, {Value::STRING});
-
         std::string value = encode_utf8(static_cast<HeapString *>(args[0].v.h)->value);
-
-        ryml::Tree tree = treeFromString(value);
-
         json j;
-        if (tree.is_stream(tree.root_id())) {
-            // Split into individual yaml documents
-            std::stringstream ss;
-            ss << tree;
-            std::vector<std::string> v = split(ss.str(), "---\n");
+        try {
+            // Use a custom EventHandler so we can attach error handling.
+            ryml::EventHandlerTree et{ryml::Callbacks{
+                nullptr, nullptr, nullptr, &Interpreter::handleRapidYamlError
+            }};
+            ryml::Parser pe(&et);
+            ryml::Tree tree = ryml::parse_in_arena(&pe, ryml::to_csubstr(value));
 
-            // Convert yaml to json and push onto json array
-            ryml::Tree doc;
-            for (std::size_t i = 0; i < v.size(); ++i) {
-                if (!v[i].empty()) {
-                    doc = treeFromString(v[i]);
-                    j.push_back(yamlTreeToJson(doc));
+            if (tree.type(tree.root_id()).is_notype()) {
+                // Nothing to do; `j` is already null!
+            } else if (tree.is_stream(tree.root_id())) {
+                for (ryml::ConstNodeRef node : tree.crootref().children()) {
+                    std::ostringstream jsonText;
+                    jsonText << ryml::as_json(node);
+                    j.push_back(json::parse(jsonText.str()));
                 }
+            } else {
+                std::ostringstream jsonText;
+                jsonText << ryml::as_json(tree);
+                j = json::parse(jsonText.str());
             }
-        } else {
-            j = yamlTreeToJson(tree);
+        } catch (const RapidYamlError& exc) {
+            throw makeError(loc, exc.msg_);
         }
-
-        bool filled;
-
-        otherJsonToHeap(j, filled, scratch);
-
+        bool filled_unused;
+        otherJsonToHeap(j, filled_unused, scratch);
         return nullptr;
-    }
-
-    const ryml::Tree treeFromString(const std::string& s) {
-        return ryml::parse_in_arena(ryml::to_csubstr(s));
     }
 
     const std::vector<std::string> split(const std::string& s, const std::string& delimiter) {
@@ -1666,12 +1755,6 @@ class Interpreter {
 
         res.push_back(s.substr(pos_start));
         return res;
-    }
-
-    const json yamlTreeToJson(const ryml::Tree& tree) {
-        std::ostringstream jsonStream;
-        jsonStream << ryml::as_json(tree);
-        return json::parse(jsonStream.str());
     }
 
     void otherJsonToHeap(const json &v, bool &filled, Value &attach) {
@@ -1909,6 +1992,8 @@ class Interpreter {
         if (auto *ext = dynamic_cast<HeapExtendedObject *>(curr)) {
             objectInvariants(ext->right, self, counter, thunks);
             objectInvariants(ext->left, self, counter, thunks);
+        } else if (auto *ext = dynamic_cast<HeapRestrictedObject *>(curr)) {
+            objectInvariants(ext->obj, self, counter, thunks);
         } else {
             if (auto *simp = dynamic_cast<HeapSimpleObject *>(curr)) {
                 for (AST *assert : simp->asserts) {
@@ -2041,13 +2126,31 @@ class Interpreter {
 
             case AST_BUILTIN_FUNCTION: {
                 const auto &ast = *static_cast<const BuiltinFunction *>(ast_);
-                HeapClosure::Params params;
-                params.reserve(ast.params.size());
-                for (const auto &p : ast.params) {
-                    // None of the builtins have default args.
-                    params.emplace_back(p, nullptr);
+                scratch = makeBuiltinFromAST(ast.body);
+            } break;
+
+            case AST_BUILTIN_FUNCTION_BODY: {
+                // We can reach here if we end up evaluating a HeapThunk that was constructed
+                // from a built-in function. Synthesize a FRAME_BUILTIN_FORCE_THUNKS to call it.
+                assert(stack.top().isCall());
+                const auto fbody = static_cast<const BuiltinFunctionBody*>(ast_);
+
+                const BindingFrame up_values = stack.top().bindings;
+                std::vector<HeapThunk*> arg_thunks;
+                for (const auto &p : fbody->params) {
+                    const auto it = up_values.find(p);
+                    if (it != up_values.end()) {
+                        arg_thunks.push_back(it->second);
+                    } else {
+                        JSONNET_UNREACHABLE();
+                    }
                 }
-                scratch = makeBuiltin(ast.name, params);
+                const LocationRange &loc = stack.top().location;
+
+                stack.newFrame(FRAME_BUILTIN_FORCE_THUNKS, loc);
+                stack.top().bindings = up_values;
+                stack.top().thunks = arg_thunks;
+                stack.top().val = makeBuiltinFromAST(fbody);
             } break;
 
             case AST_CONDITIONAL: {
@@ -2280,7 +2383,7 @@ class Interpreter {
                         }
                         // Special case for builtin functions -- leave identifier blank for
                         // them in the thunk.  This removes the thunk frame from the stacktrace.
-                        const Identifier *name_ = func->body == nullptr ? nullptr : name;
+                        const Identifier *name_ = func->isBuiltin() ? nullptr : name;
                         HeapObject *self;
                         unsigned offset;
                         stack.getSelfBinding(self, offset);
@@ -2321,7 +2424,7 @@ class Interpreter {
 
                         // Special case for builtin functions -- leave identifier blank for
                         // them in the thunk.  This removes the thunk frame from the stacktrace.
-                        const Identifier *name_ = func->body == nullptr ? nullptr : param.id;
+                        const Identifier *name_ = func->isBuiltin() ? nullptr : param.id;
                         auto *thunk =
                             makeHeap<HeapThunk>(name_, func->self, func->offset, param.def);
                         f.thunks.push_back(thunk);
@@ -2343,11 +2446,13 @@ class Interpreter {
                     const AST *f_ast = f.ast;
                     stack.pop();
 
-                    if (func->body == nullptr) {
+                    if (func->isBuiltin()) {
                         // Built-in function.
                         // Give nullptr for self because no one looking at this frame will
                         // attempt to bind to self (it's native code).
                         stack.newFrame(FRAME_BUILTIN_FORCE_THUNKS, f_ast);
+                        assert(func->upValues.empty());
+                        stack.top().bindings = up_values;
                         stack.top().thunks = thunks_copy;
                         stack.top().val = scratch;
                         goto replaceframe;
@@ -2564,13 +2669,16 @@ class Interpreter {
                                     int64_t long_r = safeDoubleToInt64(rhs.v.d, ast.location);
                                     long_r = long_r % 64;
 
-                                    // Additional safety check for left shifts to prevent undefined behavior
-                                    if (long_r >= 1 && long_l >= (1LL << (63 - long_r))) {
+                                    // Additional safety check for left shifts to prevent undefined behavior.
+                                    // Left-shift that would move the highest set bit into the sign bit position is undefined.
+                                    if (long_r >= 1 && abs(long_l) >= (1LL << (63 - long_r))) {
                                         throw makeError(ast.location,
-                                                      "numeric value outside safe integer range for bitwise operation.");
+                                            "numeric value outside safe integer range for bitwise operation.");
                                     }
 
-                                    scratch = makeNumber(long_l << long_r);
+                                    // Left-shift of a negative number is undefined until C++20.
+                                    // Perform the shift on unsigned int to avoid that.
+                                    scratch = makeNumber(static_cast<int64_t>(static_cast<uint64_t>(long_l) << long_r));
                                 } break;
 
                                 case BOP_SHIFT_R: {
@@ -2690,19 +2798,28 @@ class Interpreter {
                 } break;
 
                 case FRAME_BUILTIN_FORCE_THUNKS: {
-                    const auto &ast = *static_cast<const Apply *>(f.ast);
+                    const auto &location = f.location;
                     auto *func = static_cast<HeapClosure *>(f.val.v.h);
                     if (f.elementId == f.thunks.size()) {
                         // All thunks forced, now the builtin implementations.
-                        const LocationRange &loc = ast.location;
                         const std::string &builtin_name = func->builtinName;
                         std::vector<Value> args;
-                        for (auto *th : f.thunks) {
-                            args.push_back(th->content);
+                        for (const auto &p : func->params) {
+                            const auto it = f.bindings.find(p.id);
+                            if (it != f.bindings.end()) {
+                                assert(it->second->filled);
+                                args.push_back(it->second->content);
+                            } else {
+                                std::stringstream ss;
+                                ss << "function parameter " << encode_utf8(p.id->name)
+                                    << " not bound in call.";
+                                throw makeError(location, ss.str());
+                            }
                         }
+
                         BuiltinMap::const_iterator bit = builtins.find(builtin_name);
                         if (bit != builtins.end()) {
-                            const AST *new_ast = (this->*bit->second)(loc, args);
+                            const AST *new_ast = (this->*bit->second)(location, args);
                             if (new_ast != nullptr) {
                                 ast_ = new_ast;
                                 goto recurse;
@@ -2737,7 +2854,7 @@ class Interpreter {
                                     break;
 
                                 default:
-                                    throw makeError(ast.location,
+                                    throw makeError(location,
                                                     "native extensions can only take primitives.");
                             }
                         }
@@ -2746,7 +2863,7 @@ class Interpreter {
                             args3.push_back(&args2[i]);
                         }
                         if (nit == nativeCallbacks.end()) {
-                            throw makeError(ast.location,
+                            throw makeError(location,
                                             "unrecognized builtin name: " + builtin_name);
                         }
                         const VmNativeCallback &cb = nit->second;
@@ -2760,20 +2877,23 @@ class Interpreter {
                         } else {
                             if (r->kind != JsonnetJsonValue::STRING) {
                                 throw makeError(
-                                    ast.location,
+                                    location,
                                     "native extension returned an error that was not a string.");
                             }
                             std::string rs = r->string;
-                            throw makeError(ast.location, rs);
+                            throw makeError(location, rs);
                         }
 
                     } else {
                         // Not all arguments forced yet.
                         HeapThunk *th = f.thunks[f.elementId++];
                         if (!th->filled) {
-                            stack.newCall(ast.location, th, th->self, th->offset, th->upValues);
+                            stack.newCall(location, th, th->self, th->offset, th->upValues);
                             ast_ = th->body;
                             goto recurse;
+                        } else {
+                            // Otherwise loop back around to force the next thunk.
+                            goto replaceframe;
                         }
                     }
                 } break;
@@ -3352,6 +3472,19 @@ class Interpreter {
         }
         return r;
     }
+
+    static void handleRapidYamlError(const char* inner_msg, size_t length, ryml::Location loc, void * /* unused: userdata */)
+    {
+        std::ostringstream msg;
+        msg << "YAML error: " << loc.line << ":";
+        if (loc.col) {
+            msg << loc.col << ":";
+        } else if (loc.offset) {
+            msg << loc.offset << ":";
+        }
+        msg << " " << std::string_view(inner_msg, length);
+        throw RapidYamlError(msg.str());
+    }
 };
 
 }  // namespace
@@ -3413,23 +3546,6 @@ std::vector<std::string> jsonnet_vm_execute_stream(Allocator *alloc, const AST *
                    ctx);
     vm.evaluate(ast, 0);
     return vm.manifestStream(string_output);
-}
-
-inline int64_t safeDoubleToInt64(double value, const internal::LocationRange& loc) {
-    if (std::isnan(value) || std::isinf(value)) {
-        throw internal::StaticError(loc, "numeric value is not finite");
-    }
-
-    // Constants for safe double-to-int conversion
-    // Jsonnet uses IEEE 754 doubles, which precisely represent integers in the range [-2^53, 2^53].
-    constexpr int64_t DOUBLE_MAX_SAFE_INTEGER = 1LL << 53;
-    constexpr int64_t DOUBLE_MIN_SAFE_INTEGER = -(1LL << 53);
-
-    // Check if the value is within the safe integer range
-    if (value < DOUBLE_MIN_SAFE_INTEGER || value > DOUBLE_MAX_SAFE_INTEGER) {
-        throw internal::StaticError(loc, "numeric value outside safe integer range for bitwise operation.");
-    }
-    return static_cast<int64_t>(value);
 }
 
 }  // namespace jsonnet::internal

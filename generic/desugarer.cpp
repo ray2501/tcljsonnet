@@ -36,7 +36,7 @@ struct BuiltinDecl {
     std::vector<UString> params;
 };
 
-static unsigned long max_builtin = 40;
+static unsigned long max_builtin = 41;
 BuiltinDecl jsonnet_builtin_decl(unsigned long builtin)
 {
     switch (builtin) {
@@ -81,6 +81,7 @@ BuiltinDecl jsonnet_builtin_decl(unsigned long builtin)
         case 38: return {U"decodeUTF8", {U"arr"}};
         case 39: return {U"atan2", {U"y", U"x"}};
         case 40: return {U"hypot", {U"a", U"b"}};
+        case 41: return {U"objectRemoveKey", {U"obj", U"key"}};
         default:
             std::cerr << "INTERNAL ERROR: Unrecognized builtin function: " << builtin << std::endl;
             std::abort();
@@ -932,15 +933,19 @@ class Desugarer {
         DesugaredObject::Fields &fields = std_obj->fields;
         for (unsigned long c = 0; c <= max_builtin; ++c) {
             const auto &decl = jsonnet_builtin_decl(c);
-            Identifiers params;
-            for (const auto &p : decl.params)
-                params.push_back(id(p));
             auto name = str(decl.name);
-            auto fn = make<BuiltinFunction>(E, encode_utf8(decl.name), params);
+            auto name_utf8 = "std:" + encode_utf8(decl.name);
+            auto fnbody = alloc->makeBuiltinBody(E, name_utf8, [this, &decl]()->Identifiers {
+                Identifiers params;
+                for (const auto &p : decl.params)
+                    params.push_back(this->id(p));
+                return params;
+            });
             auto field = std::find_if(fields.begin(), fields.end(),
                 [=](const DesugaredObject::Field& f) {
                     return static_cast<LiteralString*>(f.name)->value == decl.name;
                 });
+            auto fn = make<BuiltinFunction>(E, fnbody);
             if (field != fields.end()) {
                 field->body = fn;
             } else {

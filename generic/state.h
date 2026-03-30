@@ -17,6 +17,7 @@ limitations under the License.
 #ifndef JSONNET_STATE_H
 #define JSONNET_STATE_H
 
+#include "ast.h"
 namespace jsonnet::internal {
 namespace {
 
@@ -35,6 +36,7 @@ struct HeapEntity {
         SIMPLE_OBJECT,
         COMPREHENSION_OBJECT,
         EXTENDED_OBJECT,
+        RESTRICTED_OBJECT,
     };
     GarbageCollectionMark mark;
     Type type;
@@ -210,6 +212,20 @@ struct HeapExtendedObject : public HeapObject {
     }
 };
 
+/** Objects created by std.objectRemoveKey(s). */
+struct HeapRestrictedObject : public HeapLeafObject {
+    /** The 'parent' object from which we inherit. */
+    HeapObject *obj;
+
+    /** A 'filter list' of keys retained in the object. */
+    std::map<const Identifier *, ObjectField::Hide> retainedKeys;
+
+    HeapRestrictedObject(HeapObject *obj, const std::map<const Identifier *, ObjectField::Hide> &retained_keys)
+        : HeapLeafObject(RESTRICTED_OBJECT), obj(obj), retainedKeys(retained_keys)
+    {
+    }
+};
+
 /** Objects created by the ObjectComprehensionSimple construct. */
 struct HeapComprehensionObject : public HeapLeafObject {
     /** The captured environment. */
@@ -273,6 +289,8 @@ struct HeapClosure : public HeapEntity {
           builtinName(builtin_name)
     {
     }
+
+    bool isBuiltin() const { return !this->body || this->body->type == AST_BUILTIN_FUNCTION_BODY; }
 };
 
 /** Stores a simple string on the heap. */
@@ -380,6 +398,12 @@ class Heap {
                         auto *obj = static_cast<HeapExtendedObject *>(curr);
                         addIfHeapEntity(obj->left, s.children);
                         addIfHeapEntity(obj->right, s.children);
+                        break;
+                    }
+                    case HeapEntity::RESTRICTED_OBJECT: {
+                        assert(dynamic_cast<HeapRestrictedObject *>(curr));
+                        auto *obj = static_cast<HeapRestrictedObject *>(curr);
+                        addIfHeapEntity(obj->obj, s.children);
                         break;
                     }
                     case HeapEntity::COMPREHENSION_OBJECT: {
